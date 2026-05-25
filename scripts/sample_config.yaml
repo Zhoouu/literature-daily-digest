@@ -1,0 +1,50 @@
+# Public example configuration for GitHub.
+# Copy to scripts/config.local.yaml or another ignored file before adding
+# personal topics, contact email, or publisher API settings.
+
+keywords:
+  - ultrasound imaging
+  - medical image analysis
+  - machine learning
+
+# Hard-filter journals after discovery. Leave empty to search all journals.
+journals: []
+
+# Ranking boost only. These do not exclude other relevant papers.
+priority_journals:
+  - Nature
+  - Science
+  - Cell
+  - Nature Biomedical Engineering
+  - Nature Methods
+  - IEEE Transactions on Medical Imaging
+  - Medical Image Analysis
+  - Radiology
+
+exclude_keywords:
+  - conference abstract
+  - correction
+  - erratum
+
+days_back: 1
+max_papers: 10
+output_dir: reports
+
+sources:
+  - pubmed
+  - arxiv
+  - crossref
+  - openalex
+  # Optional API-key sources. Uncomment only after setting .env or shell variables.
+  # - elsevier
+  # - springer
+
+include_abstracts: true
+timeout_seconds: 20
+max_candidates_per_source: 40
+
+# Public default. Put a contact email in .env via LITERATURE_DIGEST_USER_AGENT.
+user_agent: "literature-daily-digest/1.0"
+user_agent_env: LITERATURE_DIGEST_USER_AGENT
+elsevier_api_key_env: ELSEVIER_API_KEY
+springer_api_key_env: SPRINGER_NATURE_API_KEY

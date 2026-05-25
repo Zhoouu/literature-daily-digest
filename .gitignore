@@ -1,0 +1,32 @@
+# Local secrets and user-specific configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Keep public examples, ignore private configs copied from them
+scripts/config.yaml
+scripts/config.*.yaml
+scripts/*local*.yaml
+scripts/*private*.yaml
+scripts/*personal*.yaml
+scripts/my_config*.yaml
+!scripts/sample_config.yaml
+
+# Generated reports and runtime artifacts
+reports/
+reports_*/
+reports-smoke/
+reports_smoke/
+*.log
+**/__pycache__/
+*.py[cod]
+
+# Local editor/system files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
