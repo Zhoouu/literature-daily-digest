@@ -30,10 +30,10 @@ At least one of `keywords` or `journals` must be non-empty.
 : Directory where Markdown reports are written. Relative paths are resolved from the current working directory where the script is run. Default: `reports`.
 
 `sources`
-: List of enabled discovery sources. Supported values: `pubmed`, `arxiv`, `crossref`, `openalex`, `elsevier`, `springer`. Default: the first four public/no-key sources. `elsevier` and `springer` are optional API-key sources.
+: List of enabled discovery sources. Supported values: `pubmed`, `arxiv`, `crossref`, `openalex`, `scopus`, `elsevier`, `springer`. Default: the first four public/no-key sources. `scopus`, `elsevier`, and `springer` are optional API-key sources.
 
 `elsevier_api_key_env`
-: Environment variable that stores an Elsevier API key for the ScienceDirect Search API. Default: `ELSEVIER_API_KEY`. Only used when `sources` includes `elsevier` or `sciencedirect`.
+: Environment variable that stores an Elsevier API key for Scopus Search and ScienceDirect Search. Default: `ELSEVIER_API_KEY`. Used when `sources` includes `scopus`, `elsevier`, or `sciencedirect`.
 
 `springer_api_key_env`
 : Environment variable that stores a Springer Nature API key for the Meta API. Default: `SPRINGER_NATURE_API_KEY`. Only used when `sources` includes `springer` or `springer-nature`.
@@ -97,7 +97,9 @@ This list is a ranking preference, not an endorsement or impact-factor calculati
 
 ## Publisher API Notes
 
-Elsevier and Springer Nature should be treated as optional enhanced sources rather than mandatory daily dependencies. Keep `crossref` and `openalex` enabled because they already index metadata from many Elsevier, Springer, Nature, Wiley, ACS, and society journals without user API keys.
+Elsevier and Springer Nature should be treated as optional enhanced sources rather than mandatory daily dependencies. Keep `crossref` and `openalex` enabled because they already index metadata from many Elsevier, Springer, Nature, Wiley, ACS, and society journals without user API keys. Use `scopus` when your Elsevier key has Scopus Search access but not ScienceDirect Search v2 access.
+
+Scopus Search date filtering is less precise than PubMed/Crossref/OpenAlex in this script: the API request is limited by publication year and sorted by original load date, then the report keeps the returned candidates. Scopus `coverDate` can point to a future issue date.
 
 Do not put API keys in YAML. To enable publisher APIs, create a local `.env` file or set shell variables:
 
@@ -107,7 +109,7 @@ $env:ELSEVIER_API_KEY = "your-elsevier-key"
 $env:SPRINGER_NATURE_API_KEY = "your-springer-key"
 ```
 
-Then add `elsevier` and/or `springer` under `sources`.
+Then add `scopus`, `elsevier`, and/or `springer` under `sources`.
 
 ## GitHub-Safe Layout
 

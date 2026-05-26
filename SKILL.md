@@ -1,6 +1,6 @@
 ---
 name: literature-daily-digest
-description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Elsevier/Springer API sources via environment variables, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Elsevier/Springer search, or summarize newly published papers for a researcher.
+description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Scopus/Elsevier/Springer API sources via environment variables, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize newly published papers for a researcher.
 ---
 
 # Literature Daily Digest
@@ -47,6 +47,7 @@ Default no-key sources:
 
 Optional API-key sources:
 
+- Scopus Search with `ELSEVIER_API_KEY`.
 - Elsevier ScienceDirect with `ELSEVIER_API_KEY`.
 - Springer Nature Meta with `SPRINGER_NATURE_API_KEY`.
 

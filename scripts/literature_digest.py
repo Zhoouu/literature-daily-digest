@@ -308,6 +308,16 @@ def quoted_or_query(terms: List[str]) -> str:
     return " OR ".join(f'"{term}"' if " " in term else term for term in cleaned)
 
 
+def scopus_query(config: Dict[str, Any]) -> str:
+    terms = config["keywords"] or config["journals"]
+    query = quoted_or_query(terms)
+    if not query:
+        return ""
+    if config["keywords"]:
+        return f"TITLE-ABS-KEY({query})"
+    return f"SRCTITLE({query})"
+
+
 def env_api_key(config: Dict[str, Any], config_field: str, fallback_names: List[str]) -> Tuple[str, str]:
     configured = str(config.get(config_field, "") or "").strip()
     names = [configured] if configured else []
@@ -619,6 +629,59 @@ def parse_elsevier_entry(entry: Dict[str, Any]) -> Paper:
     )
 
 
+def fetch_scopus(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
+    api_key, env_name = env_api_key(config, "elsevier_api_key_env", ["ELSEVIER_API_KEY"])
+    if not api_key:
+        return [], SourceStatus(
+            "scopus",
+            False,
+            f"Scopus skipped: set environment variable {env_name} and enable source 'scopus'.",
+            0,
+        )
+    params = {
+        "query": scopus_query(config),
+        "count": str(min(config["max_candidates_per_source"], 25)),
+        "sort": "-orig-load-date",
+        "httpAccept": "application/json",
+        "apiKey": api_key,
+    }
+    if start.year == end.year:
+        params["date"] = str(end.year)
+    else:
+        params["date"] = f"{start.year}-{end.year}"
+    url = "https://api.elsevier.com/content/search/scopus?" + urllib.parse.urlencode(params)
+    try:
+        data = json.loads(request_text(url, config))
+        entries = data.get("search-results", {}).get("entry", [])
+        papers = [parse_scopus_entry(entry) for entry in entries]
+        papers = [paper for paper in papers if paper.title]
+        return papers, SourceStatus("scopus", True, "Fetched Scopus records using year-level date filtering.", len(papers))
+    except Exception as exc:  # noqa: BLE001
+        return [], SourceStatus("scopus", False, f"Scopus failed: {exc}", 0)
+
+
+def parse_scopus_entry(entry: Dict[str, Any]) -> Paper:
+    title = entry.get("dc:title") or entry.get("title") or ""
+    journal = entry.get("prism:publicationName") or entry.get("publicationName") or ""
+    doi = normalize_doi(entry.get("prism:doi") or entry.get("doi") or "")
+    url = entry.get("prism:url") or link_value(entry.get("link")) or (f"https://doi.org/{doi}" if doi else "")
+    abstract = entry.get("dc:description") or entry.get("description") or ""
+    published = entry.get("prism:coverDate") or entry.get("coverDate") or ""
+    source_id = str(entry.get("dc:identifier") or entry.get("eid") or doi)
+    authors = parse_authorish(entry.get("author") or entry.get("dc:creator"))
+    return Paper(
+        title=strip_markup(str(title)),
+        authors=authors[:8],
+        journal=strip_markup(str(journal)),
+        published=str(published),
+        doi=doi,
+        url=str(url),
+        abstract=strip_markup(str(abstract)),
+        source="Scopus",
+        source_id=source_id,
+    )
+
+
 def fetch_springer(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
     api_key, env_name = env_api_key(config, "springer_api_key_env", ["SPRINGER_NATURE_API_KEY", "SPRINGER_API_KEY"])
     if not api_key:
@@ -797,6 +860,7 @@ def fetch_all(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[Lis
         "arxiv": fetch_arxiv,
         "crossref": fetch_crossref,
         "openalex": fetch_openalex,
+        "scopus": fetch_scopus,
         "elsevier": fetch_elsevier,
         "sciencedirect": fetch_elsevier,
         "springer": fetch_springer,

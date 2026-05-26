@@ -36,6 +36,7 @@ sources:
   - crossref
   - openalex
   # Optional API-key sources. Uncomment only after setting .env or shell variables.
+  # - scopus
   # - elsevier
   # - springer
 
