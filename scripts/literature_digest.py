@@ -197,6 +197,12 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("user_agent", "literature-daily-digest/1.0")
     normalized.setdefault("user_agent_env", "LITERATURE_DIGEST_USER_AGENT")
     normalized.setdefault("elsevier_api_key_env", "ELSEVIER_API_KEY")
+    normalized.setdefault("elsevier_insttoken_env", "ELSEVIER_INSTTOKEN")
+    normalized.setdefault("elsevier_no_proxy", True)
+    normalized.setdefault("scopus_search_view", "STANDARD")
+    normalized.setdefault("scopus_enrich_abstracts", True)
+    normalized.setdefault("scopus_abstract_view", "META_ABS")
+    normalized.setdefault("elsevier_sciencedirect_view", "COMPLETE")
     normalized.setdefault("springer_api_key_env", "SPRINGER_NATURE_API_KEY")
 
     if args.days_back is not None:
@@ -209,7 +215,15 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     for key in ["keywords", "journals", "priority_journals", "exclude_keywords", "sources"]:
         normalized[key] = as_string_list(normalized.get(key, []))
 
-    for key in ["user_agent_env", "elsevier_api_key_env", "springer_api_key_env"]:
+    for key in [
+        "user_agent_env",
+        "elsevier_api_key_env",
+        "elsevier_insttoken_env",
+        "scopus_search_view",
+        "scopus_abstract_view",
+        "elsevier_sciencedirect_view",
+        "springer_api_key_env",
+    ]:
         normalized[key] = str(normalized.get(key, "") or "").strip()
 
     user_agent_env = normalized["user_agent_env"]
@@ -248,6 +262,20 @@ def as_string_list(value: Any) -> List[str]:
     return [str(value).strip()]
 
 
+def as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
 def parse_run_date(value: Optional[str]) -> dt.date:
     if value:
         return dt.date.fromisoformat(value)
@@ -258,18 +286,30 @@ def date_window(run_date: dt.date, days_back: int) -> Tuple[dt.date, dt.date]:
     return run_date - dt.timedelta(days=days_back - 1), run_date
 
 
-def request_text(url: str, config: Dict[str, Any]) -> str:
+def request_text(url: str, config: Dict[str, Any], extra_headers: Optional[Dict[str, str]] = None) -> str:
+    headers = {
+        "User-Agent": str(config.get("user_agent", "literature-daily-digest/1.0")),
+        "Accept": "application/json, application/xml, text/xml, */*",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
     request = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": str(config.get("user_agent", "literature-daily-digest/1.0")),
-            "Accept": "application/json, application/xml, text/xml, */*",
-        },
+        headers=headers,
     )
     timeout = int(config.get("timeout_seconds", 20))
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if should_bypass_proxy(url, config) else None
+    open_url = opener.open if opener else urllib.request.urlopen
+    with open_url(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
+
+
+def should_bypass_proxy(url: str, config: Dict[str, Any]) -> bool:
+    if not as_bool(config.get("elsevier_no_proxy"), True):
+        return False
+    host = urllib.parse.urlparse(url).hostname or ""
+    return host.lower() == "api.elsevier.com"
 
 
 def strip_markup(value: str) -> str:
@@ -283,7 +323,7 @@ def compact_text(value: str, max_chars: int = 1800) -> str:
     value = re.sub(r"\s+", " ", value or "").strip()
     if len(value) <= max_chars:
         return value
-    return value[: max_chars - 1].rstrip() + "…"
+    return value[: max_chars - 3].rstrip() + "..."
 
 
 def normalize_title(value: str) -> str:
@@ -327,6 +367,20 @@ def env_api_key(config: Dict[str, Any], config_field: str, fallback_names: List[
         if value:
             return value, name
     return "", configured or fallback_names[0]
+
+
+def elsevier_headers(config: Dict[str, Any], api_key: str) -> Dict[str, str]:
+    headers = {"X-ELS-APIKey": api_key}
+    insttoken, _ = env_api_key(config, "elsevier_insttoken_env", ["ELSEVIER_INSTTOKEN"])
+    if insttoken:
+        headers["X-ELS-Insttoken"] = insttoken
+    return headers
+
+
+def http_status(exc: BaseException) -> Optional[int]:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code
+    return None
 
 
 def fetch_pubmed(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
@@ -591,20 +645,38 @@ def fetch_elsevier(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
             0,
         )
     query = quoted_or_query(config["keywords"] or config["journals"])
+    requested_view = (str(config.get("elsevier_sciencedirect_view") or "COMPLETE").strip() or "COMPLETE").upper()
     params = {
         "query": query,
         "count": str(min(config["max_candidates_per_source"], 100)),
         "httpAccept": "application/json",
-        "apiKey": api_key,
+        "view": requested_view,
     }
+    headers = elsevier_headers(config, api_key)
     url = "https://api.elsevier.com/content/search/sciencedirect?" + urllib.parse.urlencode(params)
     try:
-        data = json.loads(request_text(url, config))
+        data = json.loads(request_text(url, config, headers))
         entries = data.get("search-results", {}).get("entry", [])
         papers = [parse_elsevier_entry(entry) for entry in entries]
         papers = [paper for paper in papers if paper.title and date_in_window(paper.published, start, end)]
         return papers, SourceStatus("elsevier", True, "Fetched Elsevier ScienceDirect records.", len(papers))
     except Exception as exc:  # noqa: BLE001
+        status = http_status(exc)
+        if requested_view != "STANDARD" and status in {401, 403}:
+            params["view"] = "STANDARD"
+            retry_url = "https://api.elsevier.com/content/search/sciencedirect?" + urllib.parse.urlencode(params)
+            try:
+                data = json.loads(request_text(retry_url, config, headers))
+                entries = data.get("search-results", {}).get("entry", [])
+                papers = [parse_elsevier_entry(entry) for entry in entries]
+                papers = [paper for paper in papers if paper.title and date_in_window(paper.published, start, end)]
+                message = (
+                    f"Fetched Elsevier ScienceDirect STANDARD records after {requested_view} was not authorized; "
+                    "ScienceDirect abstracts may be unavailable."
+                )
+                return papers, SourceStatus("elsevier", True, message, len(papers))
+            except Exception as retry_exc:  # noqa: BLE001
+                return [], SourceStatus("elsevier", False, f"Elsevier ScienceDirect failed: {retry_exc}", 0)
         return [], SourceStatus("elsevier", False, f"Elsevier ScienceDirect failed: {exc}", 0)
 
 
@@ -638,26 +710,136 @@ def fetch_scopus(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[
             f"Scopus skipped: set environment variable {env_name} and enable source 'scopus'.",
             0,
         )
+    requested_view = (str(config.get("scopus_search_view") or "STANDARD").strip() or "STANDARD").upper()
     params = {
         "query": scopus_query(config),
         "count": str(min(config["max_candidates_per_source"], 25)),
         "sort": "-orig-load-date",
         "httpAccept": "application/json",
-        "apiKey": api_key,
+        "view": requested_view,
     }
     if start.year == end.year:
         params["date"] = str(end.year)
     else:
         params["date"] = f"{start.year}-{end.year}"
+    headers = elsevier_headers(config, api_key)
     url = "https://api.elsevier.com/content/search/scopus?" + urllib.parse.urlencode(params)
     try:
-        data = json.loads(request_text(url, config))
-        entries = data.get("search-results", {}).get("entry", [])
-        papers = [parse_scopus_entry(entry) for entry in entries]
-        papers = [paper for paper in papers if paper.title]
-        return papers, SourceStatus("scopus", True, "Fetched Scopus records using year-level date filtering.", len(papers))
+        data = json.loads(request_text(url, config, headers))
     except Exception as exc:  # noqa: BLE001
-        return [], SourceStatus("scopus", False, f"Scopus failed: {exc}", 0)
+        status = http_status(exc)
+        if requested_view != "STANDARD" and status in {401, 403}:
+            params["view"] = "STANDARD"
+            fallback_url = "https://api.elsevier.com/content/search/scopus?" + urllib.parse.urlencode(params)
+            try:
+                data = json.loads(request_text(fallback_url, config, headers))
+                requested_view = "STANDARD"
+            except Exception as retry_exc:  # noqa: BLE001
+                return [], SourceStatus("scopus", False, f"Scopus failed: {retry_exc}", 0)
+        else:
+            return [], SourceStatus("scopus", False, f"Scopus failed: {exc}", 0)
+
+    entries = data.get("search-results", {}).get("entry", [])
+    papers = [parse_scopus_entry(entry) for entry in entries]
+    papers = [paper for paper in papers if paper.title]
+    abstract_note = ""
+    added = 0
+    if as_bool(config.get("scopus_enrich_abstracts"), True) and as_bool(config.get("include_abstracts"), True):
+        added, abstract_note = enrich_scopus_abstracts(papers, config, api_key)
+    message = f"Fetched Scopus {requested_view} records using year-level date filtering."
+    if added:
+        message += f" Added {added} abstracts through Scopus Abstract Retrieval."
+    if abstract_note:
+        message += f" {abstract_note}"
+    return papers, SourceStatus("scopus", True, message, len(papers))
+
+
+def enrich_scopus_abstracts(papers: List[Paper], config: Dict[str, Any], api_key: str) -> Tuple[int, str]:
+    headers = elsevier_headers(config, api_key)
+    view = (str(config.get("scopus_abstract_view") or "META_ABS").strip() or "META_ABS").upper()
+    added = 0
+    missing_ids = 0
+    transient_failures = 0
+    for paper in papers:
+        if paper.abstract:
+            continue
+        identifier_path = scopus_retrieval_identifier_path(paper)
+        if not identifier_path:
+            missing_ids += 1
+            continue
+        params = {
+            "view": view,
+            "httpAccept": "application/json",
+        }
+        url = "https://api.elsevier.com/content/abstract/" + identifier_path + "?" + urllib.parse.urlencode(params)
+        try:
+            data = json.loads(request_text(url, config, headers))
+        except Exception as exc:  # noqa: BLE001
+            status = http_status(exc)
+            if status in {401, 403}:
+                return added, (
+                    f"Scopus Abstract Retrieval {view} is not authorized for this Elsevier key; "
+                    "Scopus-only entries may lack abstracts."
+                )
+            if status == 404:
+                continue
+            transient_failures += 1
+            continue
+        abstract = abstract_from_scopus_retrieval(data)
+        if abstract:
+            paper.abstract = strip_markup(abstract)
+            added += 1
+        time.sleep(0.1)
+    notes = []
+    if missing_ids:
+        notes.append(f"{missing_ids} Scopus records had no retrievable Scopus ID/EID.")
+    if transient_failures:
+        notes.append(f"{transient_failures} Scopus abstract lookups failed transiently.")
+    return added, " ".join(notes)
+
+
+def scopus_retrieval_identifier_path(paper: Paper) -> str:
+    for value in [paper.source_id, paper.url]:
+        match = re.search(r"(?:SCOPUS_ID:|scopus_id/)(\d+)", value or "", flags=re.I)
+        if match:
+            return "scopus_id/" + urllib.parse.quote(match.group(1))
+    for value in [paper.source_id, paper.url]:
+        match = re.search(r"\b2-s2\.0-\d+\b", value or "", flags=re.I)
+        if match:
+            return "eid/" + urllib.parse.quote(match.group(0))
+    return ""
+
+
+def abstract_from_scopus_retrieval(data: Dict[str, Any]) -> str:
+    response = data.get("abstracts-retrieval-response") or {}
+    candidates = [
+        response.get("coredata", {}),
+        response,
+        response.get("item", {}),
+    ]
+    for candidate in candidates:
+        value = first_text_for_keys(candidate, {"dc:description", "description", "abstract"})
+        if value:
+            return value
+    return ""
+
+
+def first_text_for_keys(value: Any, keys: set[str]) -> str:
+    if isinstance(value, dict):
+        for key in keys:
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                return item
+        for item in value.values():
+            found = first_text_for_keys(item, keys)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = first_text_for_keys(item, keys)
+            if found:
+                return found
+    return ""
 
 
 def parse_scopus_entry(entry: Dict[str, Any]) -> Paper:

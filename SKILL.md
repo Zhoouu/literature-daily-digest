@@ -48,8 +48,18 @@ Default no-key sources:
 Optional API-key sources:
 
 - Scopus Search with `ELSEVIER_API_KEY`.
-- Elsevier ScienceDirect with `ELSEVIER_API_KEY`.
+- Scopus Abstract Retrieval with `ELSEVIER_API_KEY` when the key is entitled.
+- Elsevier ScienceDirect with `ELSEVIER_API_KEY` when the key is entitled.
 - Springer Nature Meta with `SPRINGER_NATURE_API_KEY`.
+
+Elsevier entitlements are source-specific. If Scopus Search works but abstracts
+are missing, check Source Status: the skill should treat HTTP 401/403 from
+Scopus `COMPLETE`, Scopus Abstract Retrieval, or ScienceDirect as an access
+problem, not as evidence that the paper has no abstract. Use
+`ELSEVIER_INSTTOKEN` only when Elsevier has issued an institutional token.
+Keep `elsevier_no_proxy: true` when a local proxy or VPN changes the public
+egress IP; this bypasses the system HTTP(S) proxy only for `api.elsevier.com`
+and leaves the other sources unchanged.
 
 Keep API keys, contact emails, and user-specific research profiles out of committed files. Use local `.env` for keys and `LITERATURE_DIGEST_USER_AGENT`, and use `scripts/config.local.yaml` or another ignored config for private topics.
 
@@ -85,7 +95,7 @@ When creating a new user's config, copy `scripts/sample_config.yaml` to an ignor
 - `exclude_keywords` for out-of-scope themes.
 - `sources` for enabling public and optional publisher API sources.
 - `output_dir` for the report destination.
-- `.env` for `ELSEVIER_API_KEY`, `SPRINGER_NATURE_API_KEY`, and `LITERATURE_DIGEST_USER_AGENT`.
+- `.env` for `ELSEVIER_API_KEY`, optional `ELSEVIER_INSTTOKEN`, `SPRINGER_NATURE_API_KEY`, and `LITERATURE_DIGEST_USER_AGENT`.
 
 ## Daily Automation
 

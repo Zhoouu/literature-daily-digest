@@ -33,7 +33,25 @@ At least one of `keywords` or `journals` must be non-empty.
 : List of enabled discovery sources. Supported values: `pubmed`, `arxiv`, `crossref`, `openalex`, `scopus`, `elsevier`, `springer`. Default: the first four public/no-key sources. `scopus`, `elsevier`, and `springer` are optional API-key sources.
 
 `elsevier_api_key_env`
-: Environment variable that stores an Elsevier API key for Scopus Search and ScienceDirect Search. Default: `ELSEVIER_API_KEY`. Used when `sources` includes `scopus`, `elsevier`, or `sciencedirect`.
+: Environment variable that stores an Elsevier API key for Scopus Search, optional Scopus Abstract Retrieval, and optional ScienceDirect Search. Default: `ELSEVIER_API_KEY`. Used when `sources` includes `scopus`, `elsevier`, or `sciencedirect`.
+
+`elsevier_insttoken_env`
+: Optional environment variable that stores an Elsevier institutional token. Default: `ELSEVIER_INSTTOKEN`. Only set this when Elsevier has issued an insttoken for the key; it is sent as the `X-ELS-Insttoken` header.
+
+`elsevier_no_proxy`
+: Boolean. When `true`, requests to `api.elsevier.com` bypass the local/system HTTP(S) proxy so Elsevier sees the machine's direct network egress, while other sources keep the normal proxy behavior. Default: `true`.
+
+`scopus_search_view`
+: Scopus Search view. Default: `STANDARD`. Set to `COMPLETE` only when the key is entitled for that view; the script falls back to `STANDARD` on HTTP 401/403.
+
+`scopus_enrich_abstracts`
+: Boolean. When `true`, Scopus records without `dc:description` are enriched through the Scopus Abstract Retrieval API using `scopus_abstract_view`. Default: `true`.
+
+`scopus_abstract_view`
+: Scopus Abstract Retrieval view used for enrichment. Default: `META_ABS`, which is the lowest view that includes `dc:description` in Elsevier's current views table.
+
+`elsevier_sciencedirect_view`
+: ScienceDirect Search view. Default: `COMPLETE`, because `dc:description` is only available in the complete view. The script falls back to `STANDARD` on HTTP 401/403, but abstracts may then be unavailable.
 
 `springer_api_key_env`
 : Environment variable that stores a Springer Nature API key for the Meta API. Default: `SPRINGER_NATURE_API_KEY`. Only used when `sources` includes `springer` or `springer-nature`.
@@ -99,6 +117,10 @@ This list is a ranking preference, not an endorsement or impact-factor calculati
 
 Elsevier and Springer Nature should be treated as optional enhanced sources rather than mandatory daily dependencies. Keep `crossref` and `openalex` enabled because they already index metadata from many Elsevier, Springer, Nature, Wiley, ACS, and society journals without user API keys. Use `scopus` when your Elsevier key has Scopus Search access but not ScienceDirect Search v2 access.
 
+Scopus Search access does not guarantee abstract payload access. With a basic Scopus Search key, `STANDARD` search records may omit `dc:description`; `COMPLETE` Scopus Search, Scopus Abstract Retrieval `META_ABS`, and ScienceDirect Search can return HTTP 401/403 unless Elsevier has enabled the relevant entitlement or the request includes a valid institutional token. The script keeps Scopus Search usable, then attempts Abstract Retrieval enrichment only when configured and records authorization failures in Source Status.
+
+When a local proxy or VPN exposes a non-institutional egress IP, keep `elsevier_no_proxy: true` so only Elsevier API calls bypass the proxy. This is useful when the institution recognizes direct campus or official VPN IPs. It does not change PubMed, arXiv, Crossref, OpenAlex, or Springer requests.
+
 Scopus Search date filtering is less precise than PubMed/Crossref/OpenAlex in this script: the API request is limited by publication year and sorted by original load date, then the report keeps the returned candidates. Scopus `coverDate` can point to a future issue date.
 
 Do not put API keys in YAML. To enable publisher APIs, create a local `.env` file or set shell variables:
@@ -106,6 +128,7 @@ Do not put API keys in YAML. To enable publisher APIs, create a local `.env` fil
 ```powershell
 $env:LITERATURE_DIGEST_USER_AGENT = "literature-daily-digest/1.0 (mailto:your-email@example.com)"
 $env:ELSEVIER_API_KEY = "your-elsevier-key"
+$env:ELSEVIER_INSTTOKEN = "your-elsevier-insttoken-if-issued"
 $env:SPRINGER_NATURE_API_KEY = "your-springer-key"
 ```
 

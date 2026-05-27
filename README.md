@@ -21,7 +21,8 @@ Default no-key sources:
 Optional API-key sources:
 
 - Scopus Search through `ELSEVIER_API_KEY`
-- Elsevier ScienceDirect Search through `ELSEVIER_API_KEY`
+- Scopus Abstract Retrieval through `ELSEVIER_API_KEY` when the key is entitled for it
+- Elsevier ScienceDirect Search through `ELSEVIER_API_KEY` when the key is entitled for it
 - Springer Nature Meta through `SPRINGER_NATURE_API_KEY`
 
 ## Quick Start
@@ -86,10 +87,23 @@ Then fill only the variables you need:
 ```text
 LITERATURE_DIGEST_USER_AGENT="literature-daily-digest/1.0 (mailto:your-email@example.com)"
 ELSEVIER_API_KEY=
+ELSEVIER_INSTTOKEN=
 SPRINGER_NATURE_API_KEY=
 ```
 
 Do not commit `.env`. It is intentionally ignored.
+
+Elsevier API keys are not all equivalent. A key that can run Scopus Search may
+still receive HTTP 401 for Scopus `COMPLETE`, Scopus Abstract Retrieval, or
+ScienceDirect Search. For Scopus-only keys, keep `sources` on `scopus` and
+expect some records to be metadata-only. To retrieve Scopus abstracts, request
+Scopus Abstract Retrieval access from Elsevier or add an institutional token in
+`ELSEVIER_INSTTOKEN` when Elsevier has issued one.
+
+If a local proxy or VPN changes the public egress IP, keep
+`elsevier_no_proxy: true` in the config. The script will bypass the system
+HTTP(S) proxy only for `api.elsevier.com`; other discovery sources keep the
+normal proxy behavior.
 
 ## CLI Options
 
@@ -158,4 +172,3 @@ Keep local and uncommitted:
 - private or personal config files
 - generated `reports/` folders
 - Python cache files
-

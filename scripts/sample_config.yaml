@@ -48,4 +48,10 @@ max_candidates_per_source: 40
 user_agent: "literature-daily-digest/1.0"
 user_agent_env: LITERATURE_DIGEST_USER_AGENT
 elsevier_api_key_env: ELSEVIER_API_KEY
+elsevier_insttoken_env: ELSEVIER_INSTTOKEN
+elsevier_no_proxy: true
+scopus_search_view: STANDARD
+scopus_enrich_abstracts: true
+scopus_abstract_view: META_ABS
+elsevier_sciencedirect_view: COMPLETE
 springer_api_key_env: SPRINGER_NATURE_API_KEY
