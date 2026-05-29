@@ -1,6 +1,6 @@
 ---
 name: literature-daily-digest
-description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Scopus/Elsevier/Springer API sources via environment variables, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, scholarly reviewer-style analysis lenses, optional SVG visual overviews, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize and academically interpret newly published papers for a researcher.
+description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Scopus/Elsevier/Springer API sources via environment variables, selected-paper full-text enrichment through entitled Elsevier Article Retrieval, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, scholarly reviewer-style analysis lenses, per-paper figure-rich interpretation guidance, optional diagnostic SVG overviews, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize and academically interpret newly published papers from abstracts or full text for a researcher.
 ---
 
 # Literature Daily Digest
@@ -19,8 +19,10 @@ python scripts/literature_digest.py --config scripts/sample_config.yaml
 Use `--date YYYY-MM-DD`, `--days-back N`, `--max-papers N`, or `--output-dir DIR` when the user asks for a specific run window or destination.
 Use `--env-file PATH` only when local secrets live outside the auto-loaded `.env` near the config or current directory.
 
-5. Open the generated Markdown report and refine the paper notes into a final bilingual digest using the scholarly analysis scaffold.
-6. Preserve source URLs, DOI links, source names, SVG asset links, and failure warnings from the script output.
+5. Open the generated Markdown report and read any linked local full-text artifacts before writing full-paper analysis. Treat entries without a full-text artifact as abstract-only.
+6. Refine the paper notes into a final bilingual digest using the scholarly analysis scaffold and the strongest available evidence level.
+7. For each selected paper, turn the `图文解读` draft into a real per-paper visual explanation when evidence allows: prefer an accessible paper figure, graphical abstract, method diagram, or key result figure; otherwise keep or refine the grounded Mermaid logic diagram.
+8. Preserve source URLs, DOI links, source names, full-text artifact paths/status, per-paper figure links/attribution notes, optional SVG asset links, and failure warnings from the script output.
 
 ## Report Standard
 
@@ -32,10 +34,12 @@ Produce a local Markdown literature daily report with:
 - A concise Chinese summary for each paper covering research question, field positioning, method/data, main result, scholarly contribution, and relevance to the configured research direction.
 - A peer-review-style reading note for selected papers: method/evidence strength, contribution delta, likely reviewer question, and a reading recommendation such as `必读`, `精读`, `略读`, or `观望`.
 - A short English note when the original abstract is especially technical or when a citation-ready phrasing is useful.
-- Explicit caveats when only an abstract is available, when results are preprint-only, or when the source metadata is incomplete.
-- A visual overview when `include_visuals` is enabled; keep generated SVG links intact, and add real paper figures or grounded Mermaid diagrams only when they are supported by accessible evidence.
+- Explicit caveats when only an abstract is available, when full text could not be retrieved, when results are preprint-only, or when the source metadata is incomplete.
+- Full-text evidence status for every selected paper. If a local artifact is linked, use it for final analysis but do not paste long copyrighted passages into the report.
+- A per-paper visual explanation when `include_per_paper_visuals` is enabled: pair the textual interpretation with a real paper figure when accessible and reusable, or a grounded Mermaid research-logic diagram when only abstract/metadata evidence is available.
 
-Do not invent findings that are not present in the title, abstract, or metadata. If the script only captured an abstract, mark claims as "based on abstract only" in the final report.
+Do not invent findings that are not present in the title, abstract, metadata, or retrieved full text. If the script only captured an abstract, mark claims as "based on abstract only" in the final report.
+Do not treat ranking/source overview charts as the report's visual substance; they are optional diagnostics only. The desired visual layer lives inside each paper's interpretation.
 For final polishing, use `references/academic-review-lens.md` as the compact fusion of the daily-digest workflow with the academic reviewer-panel approach.
 
 ## Using the Script
@@ -54,6 +58,7 @@ Optional API-key sources:
 - Scopus Search with `ELSEVIER_API_KEY`.
 - Scopus Abstract Retrieval with `ELSEVIER_API_KEY` when the key is entitled.
 - Elsevier ScienceDirect with `ELSEVIER_API_KEY` when the key is entitled.
+- Elsevier Article Retrieval with `ELSEVIER_API_KEY` and optional `ELSEVIER_INSTTOKEN` for selected-paper full text when entitled.
 - Springer Nature Meta with `SPRINGER_NATURE_API_KEY`.
 
 Elsevier entitlements are source-specific. If Scopus Search works but abstracts
@@ -68,6 +73,7 @@ and leaves the other sources unchanged.
 Keep API keys, contact emails, and user-specific research profiles out of committed files. Use local `.env` for keys and `LITERATURE_DIGEST_USER_AGENT`, and use `scripts/config.local.yaml` or another ignored config for private topics.
 
 If a source fails because of network, rate limit, or upstream API changes, keep the failure note in the report instead of silently dropping it.
+Full-text enrichment runs after ranking, so it only attempts the selected papers. Elsevier Article Retrieval may return only abstract/metadata or HTTP 401/403 when the key is not entitled; preserve that status in the report.
 
 For a network-free smoke test, run:
 
@@ -76,6 +82,7 @@ python scripts/literature_digest.py --config scripts/sample_config.yaml --offlin
 ```
 
 Add `--no-visuals` when a text-only draft is preferred.
+Add `--no-full-text` when a metadata/abstract-only draft is preferred.
 
 ## Ranking Guidance
 

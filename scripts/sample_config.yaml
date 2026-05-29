@@ -41,8 +41,23 @@ sources:
   # - springer
 
 include_abstracts: true
+# Try to retrieve full text for selected papers after ranking. The default
+# implemented retriever is Elsevier Article Retrieval and requires entitlement.
+include_full_text: true
+full_text_sources:
+  - elsevier
+full_text_dirname: full-text
+full_text_max_chars: 60000
+full_text_min_chars: 1200
+full_text_max_papers: 10
 include_scholarly_scaffold: true
+# Per-paper visual interpretation is the default "visual report" mode.
+# It adds a grounded Mermaid logic diagram and figure-selection notes to each paper.
 include_visuals: true
+include_per_paper_visuals: true
+# Optional global overview charts; keep off by default because they do not replace
+# per-paper visual explanation.
+include_overview_visuals: false
 visuals_dirname: assets
 timeout_seconds: 20
 max_candidates_per_source: 40
@@ -57,4 +72,6 @@ scopus_search_view: STANDARD
 scopus_enrich_abstracts: true
 scopus_abstract_view: META_ABS
 elsevier_sciencedirect_view: COMPLETE
+elsevier_article_retrieval_view: FULL
+elsevier_article_retrieval_accept: text/xml
 springer_api_key_env: SPRINGER_NATURE_API_KEY

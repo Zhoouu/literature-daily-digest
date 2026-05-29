@@ -5,8 +5,8 @@ research keywords and journal names.
 
 The skill discovers recent papers, deduplicates and ranks candidates, then writes
 a bilingual-friendly Markdown draft with source metadata, DOI links, abstracts,
-ranking notes, scholarly review-style analysis scaffolds, SVG visual overviews,
-and source failure warnings. It works with public scholarly
+optional local full-text artifacts, ranking notes, scholarly review-style analysis scaffolds,
+per-paper visual interpretation prompts, and source failure warnings. It works with public scholarly
 metadata sources by default and can optionally use publisher APIs when local
 environment variables are configured.
 
@@ -24,6 +24,7 @@ Optional API-key sources:
 - Scopus Search through `ELSEVIER_API_KEY`
 - Scopus Abstract Retrieval through `ELSEVIER_API_KEY` when the key is entitled for it
 - Elsevier ScienceDirect Search through `ELSEVIER_API_KEY` when the key is entitled for it
+- Elsevier Article Retrieval through `ELSEVIER_API_KEY`/`ELSEVIER_INSTTOKEN` for selected-paper full text when entitled
 - Springer Nature Meta through `SPRINGER_NATURE_API_KEY`
 
 ## Quick Start
@@ -66,8 +67,10 @@ Edit the local config:
 - `exclude_keywords` for filtering out unwanted themes.
 - `sources` for enabling public or optional publisher sources.
 - `output_dir` for report destination.
+- `include_full_text` and `full_text_sources` for selected-paper full-text enrichment.
 - `include_scholarly_scaffold` for reviewer-style per-paper analysis prompts.
-- `include_visuals` for local SVG visual overviews in the Markdown report.
+- `include_per_paper_visuals` for figure-rich interpretation sections on each paper.
+- `include_overview_visuals` for optional diagnostic SVG charts.
 
 Keep local configs such as `scripts/config.local.yaml` out of Git.
 
@@ -103,6 +106,12 @@ expect some records to be metadata-only. To retrieve Scopus abstracts, request
 Scopus Abstract Retrieval access from Elsevier or add an institutional token in
 `ELSEVIER_INSTTOKEN` when Elsevier has issued one.
 
+Full-text enrichment is separate from search. When `include_full_text: true`, the
+script attempts Elsevier Article Retrieval after ranking selected papers and
+stores extracted text in local report artifacts. If the API key or institutional
+token lacks article entitlement, the report records that status and the paper
+remains abstract-only.
+
 If a local proxy or VPN changes the public egress IP, keep
 `elsevier_no_proxy: true` in the config. The script will bypass the system
 HTTP(S) proxy only for `api.elsevier.com`; other discovery sources keep the
@@ -127,7 +136,8 @@ Useful flags:
 - `--days-back N`: override the config date window.
 - `--max-papers N`: override the number of ranked papers in the report.
 - `--output-dir DIR`: override the configured output directory.
-- `--no-visuals`: suppress SVG visual overview assets for one run.
+- `--no-full-text`: skip full-text enrichment for one run.
+- `--no-visuals`: suppress per-paper visual blocks and optional overview assets for one run.
 - `--offline-sample`: generate a local sample report without network APIs.
 
 See `references/config-schema.md` for the full configuration schema.
@@ -139,11 +149,13 @@ Each generated report includes:
 - The configured date window and report path.
 - Source status notes for each enabled discovery source.
 - Ranked paper candidates with title, authors, venue, date, DOI, URL, source, and score.
-- SVG visual overviews for ranking score and selected-paper source coverage when enabled.
+- Full-text evidence status and local artifact links when full text is retrieved.
+- Per-paper `图文解读` sections with a grounded Mermaid logic diagram and instructions for replacing it with real paper figures when accessible.
+- Optional diagnostic SVG overviews for ranking score and selected-paper source coverage when enabled.
 - Relevance notes explaining why a paper was ranked.
 - A scholarly reading scaffold for each paper: field positioning, method/evidence, contribution, Devil's Advocate question, and evidence caveat.
 - Abstract text when available and enabled.
-- A reminder to treat abstract-only claims carefully.
+- A reminder to distinguish full-text-based claims from abstract-only claims.
 
 The script preserves source failures in the report instead of hiding them, which
 helps distinguish "no papers found" from "a source could not be queried."
@@ -157,7 +169,8 @@ The skill entry point is `SKILL.md`. A typical Codex workflow is:
 3. Read `references/academic-review-lens.md` before final polishing.
 4. Run `scripts/literature_digest.py` for the requested date window.
 5. Open the generated Markdown report.
-6. Polish the draft into a final bilingual literature digest while preserving DOI links, source names, URLs, SVG links, and caveats.
+6. Read any local full-text artifacts linked from selected papers before writing final full-paper analysis.
+7. Polish the draft into a final bilingual literature digest while preserving DOI links, source names, URLs, per-paper figure links/attribution notes, optional SVG links, full-text evidence status, and caveats.
 
 ## Repository Safety
 

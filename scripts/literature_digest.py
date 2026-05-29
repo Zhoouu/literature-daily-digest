@@ -38,6 +38,10 @@ class Paper:
     doi: str = ""
     url: str = ""
     abstract: str = ""
+    full_text: str = ""
+    full_text_source: str = ""
+    full_text_path: str = ""
+    full_text_status: str = ""
     source: str = ""
     source_id: str = ""
     score: float = 0.0
@@ -63,6 +67,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--days-back", type=int, help="Override config days_back.")
     parser.add_argument("--max-papers", type=int, help="Override config max_papers.")
     parser.add_argument("--output-dir", help="Override config output_dir.")
+    parser.add_argument(
+        "--no-full-text",
+        action="store_true",
+        help="Skip full-text enrichment even when include_full_text is true in config.",
+    )
     parser.add_argument(
         "--no-visuals",
         action="store_true",
@@ -198,8 +207,16 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("output_dir", "reports")
     normalized.setdefault("sources", DEFAULT_SOURCES)
     normalized.setdefault("include_abstracts", True)
+    normalized.setdefault("include_full_text", True)
+    normalized.setdefault("full_text_sources", ["elsevier"])
+    normalized.setdefault("full_text_dirname", "full-text")
+    normalized.setdefault("full_text_max_chars", 60000)
+    normalized.setdefault("full_text_min_chars", 1200)
+    normalized.setdefault("full_text_max_papers", normalized.get("max_papers", 10))
     normalized.setdefault("include_scholarly_scaffold", True)
     normalized.setdefault("include_visuals", True)
+    normalized.setdefault("include_per_paper_visuals", normalized.get("include_visuals", True))
+    normalized.setdefault("include_overview_visuals", False)
     normalized.setdefault("visuals_dirname", "assets")
     normalized.setdefault("timeout_seconds", 20)
     normalized.setdefault("user_agent", "literature-daily-digest/1.0")
@@ -211,6 +228,8 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("scopus_enrich_abstracts", True)
     normalized.setdefault("scopus_abstract_view", "META_ABS")
     normalized.setdefault("elsevier_sciencedirect_view", "COMPLETE")
+    normalized.setdefault("elsevier_article_retrieval_view", "FULL")
+    normalized.setdefault("elsevier_article_retrieval_accept", "text/xml")
     normalized.setdefault("springer_api_key_env", "SPRINGER_NATURE_API_KEY")
 
     if args.days_back is not None:
@@ -219,10 +238,14 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         normalized["max_papers"] = args.max_papers
     if args.output_dir:
         normalized["output_dir"] = args.output_dir
+    if args.no_full_text:
+        normalized["include_full_text"] = False
     if args.no_visuals:
         normalized["include_visuals"] = False
+        normalized["include_per_paper_visuals"] = False
+        normalized["include_overview_visuals"] = False
 
-    for key in ["keywords", "journals", "priority_journals", "exclude_keywords", "sources"]:
+    for key in ["keywords", "journals", "priority_journals", "exclude_keywords", "sources", "full_text_sources"]:
         normalized[key] = as_string_list(normalized.get(key, []))
 
     for key in [
@@ -232,8 +255,11 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         "scopus_search_view",
         "scopus_abstract_view",
         "elsevier_sciencedirect_view",
+        "elsevier_article_retrieval_view",
+        "elsevier_article_retrieval_accept",
         "springer_api_key_env",
         "visuals_dirname",
+        "full_text_dirname",
     ]:
         normalized[key] = str(normalized.get(key, "") or "").strip()
 
@@ -250,6 +276,12 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized["max_candidates_per_source"] = max(
         1,
         int(normalized.get("max_candidates_per_source") or default_candidates),
+    )
+    normalized["full_text_max_chars"] = max(2000, int(normalized.get("full_text_max_chars") or 60000))
+    normalized["full_text_min_chars"] = max(200, int(normalized.get("full_text_min_chars") or 1200))
+    normalized["full_text_max_papers"] = max(
+        0,
+        int(normalized.get("full_text_max_papers") or normalized["max_papers"]),
     )
 
     if not normalized["keywords"] and not normalized["journals"]:
@@ -712,6 +744,268 @@ def parse_elsevier_entry(entry: Dict[str, Any]) -> Paper:
     )
 
 
+def enrich_full_texts(
+    papers: List[Paper],
+    config: Dict[str, Any],
+    run_date: dt.date,
+    output_dir: Path,
+) -> Optional[SourceStatus]:
+    if not as_bool(config.get("include_full_text"), True):
+        return SourceStatus("full-text", True, "Full-text enrichment disabled by configuration.", 0)
+
+    max_papers = int(config.get("full_text_max_papers") or len(papers))
+    target_papers = papers[:max_papers] if max_papers else []
+    if not target_papers:
+        return SourceStatus("full-text", True, "No selected papers available for full-text enrichment.", 0)
+
+    added = 0
+    preloaded = 0
+    for index, paper in enumerate(target_papers, start=1):
+        if paper.full_text:
+            write_full_text_artifact(paper, index, run_date, output_dir, config)
+            preloaded += 1
+
+    notes: List[str] = []
+    full_text_sources = [source.lower() for source in config.get("full_text_sources", [])]
+    if "elsevier" in full_text_sources or "sciencedirect" in full_text_sources:
+        api_key, env_name = env_api_key(config, "elsevier_api_key_env", ["ELSEVIER_API_KEY"])
+        if api_key:
+            elsevier_added, elsevier_note = enrich_elsevier_full_texts(target_papers, config, api_key, run_date, output_dir)
+            added += elsevier_added
+            if elsevier_note:
+                notes.append(elsevier_note)
+        else:
+            skip_note = f"Elsevier Article Retrieval skipped: set environment variable {env_name}."
+            for paper in target_papers:
+                if not paper.full_text and not paper.full_text_status:
+                    paper.full_text_status = skip_note
+            notes.append(skip_note)
+    elif full_text_sources:
+        skip_note = "No implemented full-text retriever matched configured full_text_sources."
+        for paper in target_papers:
+            if not paper.full_text and not paper.full_text_status:
+                paper.full_text_status = skip_note
+        notes.append(skip_note)
+    else:
+        skip_note = "No full_text_sources configured."
+        for paper in target_papers:
+            if not paper.full_text and not paper.full_text_status:
+                paper.full_text_status = skip_note
+        notes.append(skip_note)
+
+    total = added + preloaded
+    message = f"Full-text enrichment stored {total} local text artifact(s)."
+    if notes:
+        message += " " + " ".join(notes)
+    return SourceStatus("full-text", True, message, total)
+
+
+def enrich_elsevier_full_texts(
+    papers: List[Paper],
+    config: Dict[str, Any],
+    api_key: str,
+    run_date: dt.date,
+    output_dir: Path,
+) -> Tuple[int, str]:
+    added = 0
+    missing_ids = 0
+    unauthorized = 0
+    not_found = 0
+    thin_payloads = 0
+    transient_failures = 0
+    max_chars = int(config.get("full_text_max_chars") or 60000)
+    min_chars = int(config.get("full_text_min_chars") or 1200)
+    view = str(config.get("elsevier_article_retrieval_view") or "FULL").strip().upper() or "FULL"
+    accept = str(config.get("elsevier_article_retrieval_accept") or "text/xml").strip() or "text/xml"
+    headers = elsevier_headers(config, api_key)
+    headers["Accept"] = accept
+
+    for index, paper in enumerate(papers, start=1):
+        if paper.full_text:
+            continue
+        identifier_path, identifier_label = elsevier_article_identifier_path(paper)
+        if not identifier_path:
+            missing_ids += 1
+            paper.full_text_status = "Full text not attempted: no DOI, PII, EID, Scopus ID, or PubMed ID available."
+            continue
+        params = {"httpAccept": accept, "view": view}
+        url = "https://api.elsevier.com/content/article/" + identifier_path + "?" + urllib.parse.urlencode(params)
+        try:
+            payload = request_text(url, config, headers)
+        except Exception as exc:  # noqa: BLE001
+            status = http_status(exc)
+            if status in {401, 403}:
+                unauthorized += 1
+                paper.full_text_status = f"Elsevier Article Retrieval not authorized for {identifier_label}; API returned HTTP {status}."
+                continue
+            if status == 404:
+                not_found += 1
+                paper.full_text_status = f"Elsevier Article Retrieval found no ScienceDirect article for {identifier_label}."
+                continue
+            transient_failures += 1
+            paper.full_text_status = f"Elsevier Article Retrieval failed for {identifier_label}: {exc}"
+            continue
+
+        full_text = article_text_from_elsevier_payload(payload)
+        if len(full_text) < min_chars:
+            thin_payloads += 1
+            paper.full_text_status = (
+                f"Elsevier Article Retrieval returned only {len(full_text)} characters for {identifier_label}; "
+                "treat as abstract/metadata-level evidence."
+            )
+            continue
+        paper.full_text = compact_full_text(full_text, max_chars)
+        paper.full_text_source = f"Elsevier Article Retrieval API ({identifier_label})"
+        paper.full_text_status = f"Full text retrieved from Elsevier Article Retrieval using {identifier_label}."
+        write_full_text_artifact(paper, index, run_date, output_dir, config)
+        added += 1
+        time.sleep(0.1)
+
+    notes = []
+    if added:
+        notes.append(f"Retrieved {added} Elsevier full text(s).")
+    if missing_ids:
+        notes.append(f"{missing_ids} paper(s) lacked identifiers for Elsevier Article Retrieval.")
+    if unauthorized:
+        notes.append(f"{unauthorized} Elsevier full-text request(s) were not authorized or not entitled.")
+    if not_found:
+        notes.append(f"{not_found} DOI/identifier(s) were not found in ScienceDirect Article Retrieval.")
+    if thin_payloads:
+        notes.append(f"{thin_payloads} Elsevier response(s) looked like abstract/metadata rather than full text.")
+    if transient_failures:
+        notes.append(f"{transient_failures} Elsevier full-text request(s) failed transiently.")
+    return added, " ".join(notes)
+
+
+def elsevier_article_identifier_path(paper: Paper) -> Tuple[str, str]:
+    if paper.doi:
+        return "doi/" + urllib.parse.quote(paper.doi, safe=""), "DOI"
+    pii = pii_from_values([paper.source_id, paper.url])
+    if pii:
+        return "pii/" + urllib.parse.quote(pii, safe=""), "PII"
+    for value in [paper.source_id, paper.url]:
+        match = re.search(r"(?:SCOPUS_ID:|scopus_id/)(\d+)", value or "", flags=re.I)
+        if match:
+            return "scopus_id/" + urllib.parse.quote(match.group(1), safe=""), "Scopus ID"
+    for value in [paper.source_id, paper.url]:
+        match = re.search(r"\b2-s2\.0-\d+\b", value or "", flags=re.I)
+        if match:
+            return "eid/" + urllib.parse.quote(match.group(0), safe=""), "EID"
+    for value in [paper.source_id, paper.url]:
+        match = re.search(r"(?:pubmed_id/|pmid[:\s]?)(\d+)", value or "", flags=re.I)
+        if match:
+            return "pubmed_id/" + urllib.parse.quote(match.group(1), safe=""), "PubMed ID"
+    return "", ""
+
+
+def pii_from_values(values: Iterable[str]) -> str:
+    for value in values:
+        if not value:
+            continue
+        match = re.search(r"/pii/([A-Za-z0-9]+)", value)
+        if match:
+            return match.group(1)
+        match = re.search(r"\b(S\d{15,}[A-Za-z0-9]*)\b", value)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def article_text_from_elsevier_payload(payload: str) -> str:
+    stripped = payload.lstrip()
+    if not stripped:
+        return ""
+    if stripped.startswith("{"):
+        try:
+            return article_text_from_json(json.loads(stripped))
+        except json.JSONDecodeError:
+            return strip_markup(stripped)
+    try:
+        return article_text_from_xml(stripped)
+    except ET.ParseError:
+        return strip_markup(stripped)
+
+
+def article_text_from_json(data: Dict[str, Any]) -> str:
+    raw = first_text_for_keys(data, {"xocs:rawtext", "rawtext", "full-text", "fullText", "originalText"})
+    if raw:
+        return normalize_full_text(raw)
+    response = data.get("full-text-retrieval-response") or data
+    candidates = [
+        response.get("originalText") if isinstance(response, dict) else "",
+        response.get("coredata", {}).get("dc:description") if isinstance(response, dict) else "",
+    ]
+    return normalize_full_text("\n\n".join(str(item) for item in candidates if item))
+
+
+def article_text_from_xml(payload: str) -> str:
+    root = ET.fromstring(payload)
+    raw_parts = []
+    for element in root.iter():
+        if local_name(element.tag).lower() in {"rawtext", "originaltext"}:
+            text = strip_markup(" ".join(element.itertext()))
+            if text:
+                raw_parts.append(text)
+    if raw_parts:
+        return normalize_full_text("\n\n".join(raw_parts))
+
+    parts = []
+    useful_names = {
+        "title",
+        "section-title",
+        "para",
+        "simple-para",
+        "abstract-sec",
+        "description",
+        "caption",
+    }
+    for element in root.iter():
+        if local_name(element.tag).lower() not in useful_names:
+            continue
+        text = strip_markup(" ".join(element.itertext()))
+        if text and text not in parts:
+            parts.append(text)
+    return normalize_full_text("\n\n".join(parts))
+
+
+def normalize_full_text(value: str) -> str:
+    lines = []
+    for raw_line in value.splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if line:
+            lines.append(line)
+    if not lines:
+        return strip_markup(value)
+    return "\n\n".join(lines)
+
+
+def write_full_text_artifact(
+    paper: Paper,
+    index: int,
+    run_date: dt.date,
+    output_dir: Path,
+    config: Dict[str, Any],
+) -> None:
+    if not paper.full_text:
+        return
+    dirname = f"literature-digest-{run_date.isoformat()}-{safe_path_segment(str(config.get('full_text_dirname') or 'full-text'))}"
+    artifact_dir = output_dir / dirname
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    key = paper.doi or normalize_title(paper.title) or f"paper-{index}"
+    filename = f"{index:02d}-{safe_path_segment(key)[:90]}.txt"
+    path = artifact_dir / filename
+    header = [
+        f"Title: {paper.title}",
+        f"DOI: {paper.doi or 'not available'}",
+        f"URL: {paper.url or 'not available'}",
+        f"Full text source: {paper.full_text_source or 'not available'}",
+        f"Status: {paper.full_text_status or 'retrieved'}",
+        "",
+    ]
+    path.write_text("\n".join(header) + paper.full_text.rstrip() + "\n", encoding="utf-8")
+    paper.full_text_path = path.relative_to(output_dir).as_posix()
+
+
 def fetch_scopus(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
     api_key, env_name = env_api_key(config, "elsevier_api_key_env", ["ELSEVIER_API_KEY"])
     if not api_key:
@@ -971,6 +1265,17 @@ def first_string(value: Any) -> str:
     return str(value)
 
 
+def local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def compact_full_text(value: str, max_chars: int) -> str:
+    value = re.sub(r"\n{3,}", "\n\n", value or "").strip()
+    if len(value) <= max_chars:
+        return value
+    return value[: max_chars - 120].rstrip() + "\n\n[Full text truncated by full_text_max_chars for local analysis.]"
+
+
 def date_parts_to_iso(value: Any) -> str:
     parts = (value or {}).get("date-parts", [[]])
     if not parts or not parts[0]:
@@ -1026,6 +1331,19 @@ def offline_sample_papers(run_date: dt.date) -> Tuple[List[Paper], List[SourceSt
                 "This sample record describes a neural reconstruction method for portable ultrasound. "
                 "It reports improved image quality on a multi-center retrospective dataset."
             ),
+            full_text=(
+                "Introduction\n\nPortable ultrasound imaging is constrained by probe size, acquisition time, "
+                "operator variation, and reconstruction artifacts.\n\nMethods\n\nThe sample study evaluates a "
+                "deep learning reconstruction pipeline on a multi-center retrospective dataset. The pipeline "
+                "combines raw acquisition preprocessing, neural reconstruction, and image-quality assessment "
+                "against conventional reconstruction baselines.\n\nResults\n\nThe abstract-level sample reports "
+                "improved image quality, but the exact metrics, external validation design, and statistical "
+                "uncertainty must be checked in the full paper.\n\nLimitations\n\nImportant full-text questions "
+                "include whether scanner vendors, anatomy sites, and patient populations were balanced across "
+                "training and testing, and whether reader-study endpoints align with clinical usability."
+            ),
+            full_text_source="Offline sample full text",
+            full_text_status="Offline sample full text generated for smoke testing.",
             source="OfflineSample",
             source_id="sample-1",
         ),
@@ -1040,6 +1358,18 @@ def offline_sample_papers(run_date: dt.date) -> Tuple[List[Paper], List[SourceSt
                 "This sample record evaluates foundation models across segmentation and classification tasks "
                 "and highlights domain shift as a major limitation."
             ),
+            full_text=(
+                "Background\n\nFoundation models promise reusable representations for medical image analysis, "
+                "but their reliability depends on domain coverage and downstream validation.\n\nMethods\n\nThe "
+                "sample paper compares foundation-model features across segmentation and classification tasks, "
+                "with stress tests for distribution shift.\n\nResults\n\nThe sample full text indicates that "
+                "domain shift remains a central failure mode, especially when evaluation data differ from "
+                "pretraining and fine-tuning distributions.\n\nDiscussion\n\nA full analysis should compare "
+                "reported baselines, ablations, external datasets, uncertainty reporting, and whether the paper "
+                "shows clinically meaningful improvements rather than only benchmark gains."
+            ),
+            full_text_source="Offline sample full text",
+            full_text_status="Offline sample full text generated for smoke testing.",
             source="OfflineSample",
             source_id="sample-2",
         ),
@@ -1109,6 +1439,11 @@ def deduplicate(papers: List[Paper]) -> List[Paper]:
             existing.source = f"{existing.source}, {paper.source}"
         if not existing.abstract or len(paper.abstract) > len(existing.abstract):
             existing.abstract = paper.abstract
+        if not existing.full_text or len(paper.full_text) > len(existing.full_text):
+            existing.full_text = paper.full_text
+            existing.full_text_source = paper.full_text_source
+            existing.full_text_path = paper.full_text_path
+            existing.full_text_status = paper.full_text_status
         if not existing.doi and paper.doi:
             existing.doi = paper.doi
         if not existing.url and paper.url:
@@ -1120,6 +1455,10 @@ def deduplicate(papers: List[Paper]) -> List[Paper]:
         if len(paper.authors) > len(existing.authors):
             existing.authors = paper.authors
     return list(merged.values())
+
+
+def paper_analysis_text(paper: Paper) -> str:
+    return " ".join([paper.title, paper.abstract, paper.full_text, paper.journal])
 
 
 def score_paper(paper: Paper, config: Dict[str, Any], run_date: dt.date) -> Tuple[float, List[str]]:
@@ -1168,7 +1507,7 @@ def score_paper(paper: Paper, config: Dict[str, Any], run_date: dt.date) -> Tupl
 
 
 def paper_type_label(paper: Paper) -> str:
-    haystack = f"{paper.title} {paper.abstract}".lower()
+    haystack = paper_analysis_text(paper).lower()
     patterns = [
         ("Systematic review / meta-analysis", ["systematic review", "scoping review", "meta-analysis", "meta analysis"]),
         ("Computational / machine-learning study", ["machine learning", "deep learning", "foundation model", "segmentation", "classification", "prediction model"]),
@@ -1186,7 +1525,7 @@ def paper_type_label(paper: Paper) -> str:
 
 
 def method_signals(paper: Paper) -> List[str]:
-    haystack = f"{paper.title} {paper.abstract}".lower()
+    haystack = paper_analysis_text(paper).lower()
     signals = [
         ("systematic review", "systematic review"),
         ("meta-analysis", "meta-analysis"),
@@ -1210,6 +1549,13 @@ def method_signals(paper: Paper) -> List[str]:
 
 
 def evidence_readiness(paper: Paper) -> str:
+    if paper.full_text:
+        markers = ["full text"]
+        if paper.abstract:
+            markers.append("abstract")
+        if paper.doi:
+            markers.append("DOI")
+        return " + ".join(markers)
     if not paper.abstract:
         return "metadata only"
     markers = ["abstract"]
@@ -1221,6 +1567,8 @@ def evidence_readiness(paper: Paper) -> str:
 
 
 def evidence_caveat(paper: Paper) -> str:
+    if paper.full_text:
+        return "Full text was retrieved into a local analysis artifact; final claims can use full-text evidence, but avoid long verbatim quotation and preserve source/entitlement caveats."
     if not paper.abstract:
         return "Only metadata was retrieved; do not summarize methods, results, or conclusions beyond title-level signals."
     return "Based on retrieved abstract and metadata; verify numerical results, figures, and limitations against the full text before final claims."
@@ -1276,7 +1624,7 @@ def write_visual_assets(
     run_date: dt.date,
     output_dir: Path,
 ) -> List[Tuple[str, str]]:
-    if not papers or not as_bool(config.get("include_visuals"), True):
+    if not papers or not as_bool(config.get("include_overview_visuals"), False):
         return []
 
     asset_dirname = f"literature-digest-{run_date.isoformat()}-{safe_path_segment(str(config.get('visuals_dirname') or 'assets'))}"
@@ -1292,6 +1640,41 @@ def write_visual_assets(
     return [
         ("Ranking score overview", score_path.relative_to(output_dir).as_posix()),
         ("Selected paper source coverage", source_path.relative_to(output_dir).as_posix()),
+    ]
+
+
+def mermaid_label(value: str, max_chars: int = 72) -> str:
+    value = compact_text(value, max_chars)
+    value = value.replace('"', "'").replace("[", "(").replace("]", ")")
+    return value or "not available"
+
+
+def format_per_paper_visual_block(paper: Paper, signals: List[str]) -> List[str]:
+    method_text = ", ".join(signals) if signals else "摘要/元数据未显式给出方法"
+    evidence_text = evidence_readiness(paper)
+    skeptical_question = "泛化范围、对照基线或替代解释是否充分？"
+    if not paper.abstract:
+        skeptical_question = "仅有元数据，是否值得追踪全文？"
+    evidence_scope = "标题、摘要、元数据与本地全文" if paper.full_text else "标题、摘要和元数据"
+    finding_target = "待从全文提取和核实" if paper.full_text else "待从摘要或全文核实"
+
+    return [
+        "**图文解读**",
+        "",
+        "- 首选配图：开放全文中的 graphical abstract、Fig. 1 方法流程图、模型结构图或核心结果图；确认可访问和可引用后再嵌入真实图片。",
+        f"- 当前草图：下面的 Mermaid 图只使用已检索到的{evidence_scope}，用于终稿前的论文逻辑梳理；若拿到真实论文图，应替换或补充它。",
+        "",
+        "```mermaid",
+        "flowchart LR",
+        f'  A["研究问题<br/>{mermaid_label(paper.title, 78)}"] --> B["方法/数据线索<br/>{mermaid_label(method_text, 64)}"]',
+        f'  B --> C["主要发现<br/>{finding_target}"]',
+        f'  C --> D["学术贡献<br/>相对已有研究的增量待精炼"]',
+        f'  B --> E["证据边界<br/>{mermaid_label(evidence_text, 52)}"]',
+        f'  E --> F["审稿式追问<br/>{mermaid_label(skeptical_question, 54)}"]',
+        "```",
+        "",
+        "- 配图说明待补：终稿应写 2-3 句，说明图中机制/流程/结果如何支撑本文的核心贡献，而不是只把图贴上去。",
+        "",
     ]
 
 
@@ -1383,8 +1766,10 @@ def write_markdown(
     lines.append(f"- Priority journals: {format_list(config['priority_journals'])}")
     lines.append(f"- Sources: {format_list(config['sources'])}")
     lines.append(f"- Max papers: {config['max_papers']}")
+    lines.append(f"- Full-text enrichment: {'enabled' if as_bool(config.get('include_full_text'), True) else 'disabled'}")
     lines.append(f"- Scholarly analysis scaffold: {'enabled' if as_bool(config.get('include_scholarly_scaffold'), True) else 'disabled'}")
-    lines.append(f"- Visual overview: {'enabled' if visual_assets else 'disabled'}")
+    lines.append(f"- Per-paper visual interpretation: {'enabled' if as_bool(config.get('include_per_paper_visuals'), True) else 'disabled'}")
+    lines.append(f"- Overview charts: {'enabled' if visual_assets else 'disabled'}")
     lines.append("")
     lines.append("## Source Status")
     lines.append("")
@@ -1419,6 +1804,7 @@ def write_markdown(
                     paper,
                     as_bool(config.get("include_abstracts"), True),
                     as_bool(config.get("include_scholarly_scaffold"), True),
+                    as_bool(config.get("include_per_paper_visuals"), True),
                 )
             )
 
@@ -1430,7 +1816,13 @@ def format_list(values: List[str]) -> str:
     return ", ".join(values) if values else "none"
 
 
-def format_paper(index: int, paper: Paper, include_abstract: bool, include_scholarly_scaffold: bool) -> List[str]:
+def format_paper(
+    index: int,
+    paper: Paper,
+    include_abstract: bool,
+    include_scholarly_scaffold: bool,
+    include_per_paper_visuals: bool,
+) -> List[str]:
     authors = ", ".join(paper.authors[:5])
     if len(paper.authors) > 5:
         authors += ", et al."
@@ -1449,8 +1841,12 @@ def format_paper(index: int, paper: Paper, include_abstract: bool, include_schol
         f"- Match reasons: {'; '.join(paper.reasons)}",
         f"- Type signal: {paper_type_label(paper)}",
         f"- Evidence status: {evidence_readiness(paper)}",
-        "",
     ]
+    if paper.full_text_path:
+        lines.append(f"- Full text artifact: `{paper.full_text_path}`")
+    elif paper.full_text_status:
+        lines.append(f"- Full text status: {paper.full_text_status}")
+    lines.append("")
     if include_scholarly_scaffold:
         lines.extend(
             [
@@ -1478,6 +1874,8 @@ def format_paper(index: int, paper: Paper, include_abstract: bool, include_schol
                 "",
             ]
         )
+    if include_per_paper_visuals:
+        lines.extend(format_per_paper_visual_block(paper, signals))
     if include_abstract and paper.abstract:
         lines.extend(["**English Abstract**", "", compact_text(paper.abstract), ""])
     elif include_abstract:
@@ -1502,7 +1900,17 @@ def main() -> int:
     else:
         raw_papers, statuses = fetch_all(config, start, end)
     ranked = filter_and_rank(raw_papers, config, run_date)
-    output_path = write_markdown(ranked, statuses, config, run_date, start, end, Path(config["output_dir"]))
+    if not as_bool(config.get("include_full_text"), True):
+        for paper in ranked:
+            paper.full_text = ""
+            paper.full_text_source = ""
+            paper.full_text_path = ""
+            paper.full_text_status = ""
+    output_dir = Path(config["output_dir"])
+    full_text_status = enrich_full_texts(ranked, config, run_date, output_dir)
+    if full_text_status:
+        statuses.append(full_text_status)
+    output_path = write_markdown(ranked, statuses, config, run_date, start, end, output_dir)
     print(f"Wrote {output_path} with {len(ranked)} papers.")
     failed = [status for status in statuses if not status.ok]
     if failed:

@@ -14,11 +14,15 @@ selected paper.
 Separate what the source actually supports from what the analyst infers.
 
 - Use title, abstract, metadata, DOI pages, and full text when available.
+- Read local full-text artifacts linked from the generated report before writing
+  full-paper analysis.
 - Mark abstract-only claims explicitly.
 - Do not infer results, effect sizes, datasets, limitations, or novelty that are
   not present in the retrieved evidence.
 - When metadata and abstract disagree, preserve the conflict and prefer a
   cautious note over a forced conclusion.
+- Do not quote long passages from retrieved full text in the final digest; use
+  concise paraphrase and keep figure/text source links.
 
 ## Five Reading Lenses
 
@@ -98,14 +102,32 @@ Use this compact structure for each final digest entry:
 
 ## Visual Reporting
 
-Use visuals only when they clarify selection or interpretation.
+Use visuals inside each paper's interpretation, not only as dashboard-style
+overviews.
 
-- Keep script-generated SVG overviews for ranking score and source coverage.
+- Treat ranking/source overview charts as optional diagnostics. They do not
+  satisfy a figure-rich paper report by themselves.
 - For individual papers, embed real figures only when a public figure image or
   full-text figure is available and citation/use terms allow it.
 - If no real figure is available, use a Mermaid flow diagram only for concepts
   that can be grounded in the abstract or full text.
 - Do not create decorative or speculative scientific figures.
+
+For each paper, use this visual priority order:
+
+1. Graphical abstract or summary figure from an accessible source.
+2. Method pipeline, model architecture, experimental setup, or study design
+   figure.
+3. Key result figure that directly supports the paper's main claim.
+4. Grounded Mermaid logic diagram based only on retrieved evidence.
+
+When embedding a real figure, add one or two sentences explaining what the
+reader should notice in the figure and how it supports or limits the paper's
+claim. Preserve the figure source URL and attribution/caveat.
+
+If the generated report links a local full-text artifact, use it to ground the
+Mermaid logic diagram and figure-selection recommendation. If no full text was
+retrieved, keep the diagram clearly marked as abstract/metadata-grounded.
 
 ## Daily Digest Synthesis
 

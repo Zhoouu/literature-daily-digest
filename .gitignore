@@ -22,6 +22,7 @@ reports_*/
 reports-smoke/
 reports-smoke*/
 reports_smoke/
+**/literature-digest-*-full-text/
 *.log
 **/__pycache__/
 *.py[cod]

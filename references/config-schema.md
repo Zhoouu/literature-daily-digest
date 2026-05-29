@@ -53,6 +53,12 @@ At least one of `keywords` or `journals` must be non-empty.
 `elsevier_sciencedirect_view`
 : ScienceDirect Search view. Default: `COMPLETE`, because `dc:description` is only available in the complete view. The script falls back to `STANDARD` on HTTP 401/403, but abstracts may then be unavailable.
 
+`elsevier_article_retrieval_accept`
+: Response format requested from Elsevier Article Retrieval for full-text enrichment. Default: `text/xml`, because it is easier to extract body text from XML than from PDF. Actual full-text availability depends on Elsevier API access and institutional entitlements.
+
+`elsevier_article_retrieval_view`
+: Elsevier Article Retrieval view requested for full-text enrichment. Default: `FULL`. If the key is not entitled for this view, the report records the authorization/access status and the paper remains abstract-only or metadata-only.
+
 `springer_api_key_env`
 : Environment variable that stores a Springer Nature API key for the Meta API. Default: `SPRINGER_NATURE_API_KEY`. Only used when `sources` includes `springer` or `springer-nature`.
 
@@ -71,11 +77,35 @@ At least one of `keywords` or `journals` must be non-empty.
 `include_abstracts`
 : Boolean. Include abstracts in the Markdown draft when available. Default: `true`.
 
+`include_full_text`
+: Boolean. After candidate ranking, try to retrieve full text for selected papers and store it as local analysis artifacts. Default: `true`. The report links to local artifacts instead of printing long copyrighted text.
+
+`full_text_sources`
+: List of full-text retrievers to use after ranking. Currently implemented: `elsevier` / `sciencedirect` through Elsevier Article Retrieval. Default: `elsevier`.
+
+`full_text_dirname`
+: Directory suffix for local full-text artifacts under `output_dir`, combined with the run date as `literature-digest-YYYY-MM-DD-<full_text_dirname>`. Default: `full-text`.
+
+`full_text_max_chars`
+: Maximum characters stored per retrieved full text artifact. This limits very large XML/plain-text responses while preserving enough material for analysis. Default: `60000`.
+
+`full_text_min_chars`
+: Minimum extracted text length required before a retrieval is treated as full-text-level evidence rather than abstract/metadata. Default: `1200`.
+
+`full_text_max_papers`
+: Maximum number of selected papers to attempt full-text enrichment for. Default: `max_papers`.
+
 `include_scholarly_scaffold`
 : Boolean. Include the per-paper scholarly analysis scaffold that guides final Codex polishing through field positioning, method/evidence, contribution, Devil's Advocate, evidence caveat, and visual suggestions. Default: `true`.
 
 `include_visuals`
-: Boolean. Write local SVG visual overview assets and embed them in the Markdown report. Current visuals include ranking-score overview and selected-paper source coverage. Default: `true`. Use `--no-visuals` for a text-only run.
+: Boolean. Backward-compatible master switch for visual report material. By default this enables per-paper visual interpretation, not global overview charts. Default: `true`. Use `--no-visuals` for a text-only run.
+
+`include_per_paper_visuals`
+: Boolean. Add a `图文解读` section to each selected paper. The generated draft includes a grounded Mermaid research-logic diagram and instructions for replacing or supplementing it with a real paper figure during final polishing. Default: follows `include_visuals`, normally `true`.
+
+`include_overview_visuals`
+: Boolean. Write local SVG overview assets for ranking score and selected-paper source coverage. Default: `false`, because these overview charts are optional diagnostics and do not satisfy per-paper visual explanation.
 
 `visuals_dirname`
 : Directory suffix for generated SVG assets under `output_dir`, combined with the run date as `literature-digest-YYYY-MM-DD-<visuals_dirname>`. Default: `assets`.
@@ -90,7 +120,9 @@ python scripts/literature_digest.py --config scripts/sample_config.yaml --date 2
 
 Use `--offline-sample` to generate a local sample report without network calls.
 
-Use `--no-visuals` to suppress SVG asset generation for a single run.
+Use `--no-full-text` to suppress full-text enrichment for a single run.
+
+Use `--no-visuals` to suppress per-paper visual blocks and optional overview SVG assets for a single run.
 
 Use `--env-file` when secrets live somewhere other than the auto-loaded `.env` near the config or current directory:
 
@@ -129,6 +161,8 @@ This list is a ranking preference, not an endorsement or impact-factor calculati
 Elsevier and Springer Nature should be treated as optional enhanced sources rather than mandatory daily dependencies. Keep `crossref` and `openalex` enabled because they already index metadata from many Elsevier, Springer, Nature, Wiley, ACS, and society journals without user API keys. Use `scopus` when your Elsevier key has Scopus Search access but not ScienceDirect Search v2 access.
 
 Scopus Search access does not guarantee abstract payload access. With a basic Scopus Search key, `STANDARD` search records may omit `dc:description`; `COMPLETE` Scopus Search, Scopus Abstract Retrieval `META_ABS`, and ScienceDirect Search can return HTTP 401/403 unless Elsevier has enabled the relevant entitlement or the request includes a valid institutional token. The script keeps Scopus Search usable, then attempts Abstract Retrieval enrichment only when configured and records authorization failures in Source Status.
+
+Full-text enrichment is separate from search. After the script ranks selected papers, it can call Elsevier Article Retrieval by DOI, PII, EID, Scopus ID, or PubMed ID and store extracted body text under the report output directory. Elsevier may return only abstract/metadata or HTTP 401/403 when the key or institutional token lacks article entitlements; the report keeps those notes so final summaries can distinguish full-text evidence from abstract-only evidence.
 
 When a local proxy or VPN exposes a non-institutional egress IP, keep `elsevier_no_proxy: true` so only Elsevier API calls bypass the proxy. This is useful when the institution recognizes direct campus or official VPN IPs. It does not change PubMed, arXiv, Crossref, OpenAlex, or Springer requests.
 
