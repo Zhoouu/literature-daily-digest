@@ -41,6 +41,9 @@ sources:
   # - springer
 
 include_abstracts: true
+include_scholarly_scaffold: true
+include_visuals: true
+visuals_dirname: assets
 timeout_seconds: 20
 max_candidates_per_source: 40
 

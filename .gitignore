@@ -20,6 +20,7 @@ scripts/my_config*.yaml
 reports/
 reports_*/
 reports-smoke/
+reports-smoke*/
 reports_smoke/
 *.log
 **/__pycache__/

@@ -5,7 +5,8 @@ research keywords and journal names.
 
 The skill discovers recent papers, deduplicates and ranks candidates, then writes
 a bilingual-friendly Markdown draft with source metadata, DOI links, abstracts,
-ranking notes, and source failure warnings. It works with public scholarly
+ranking notes, scholarly review-style analysis scaffolds, SVG visual overviews,
+and source failure warnings. It works with public scholarly
 metadata sources by default and can optionally use publisher APIs when local
 environment variables are configured.
 
@@ -65,6 +66,8 @@ Edit the local config:
 - `exclude_keywords` for filtering out unwanted themes.
 - `sources` for enabling public or optional publisher sources.
 - `output_dir` for report destination.
+- `include_scholarly_scaffold` for reviewer-style per-paper analysis prompts.
+- `include_visuals` for local SVG visual overviews in the Markdown report.
 
 Keep local configs such as `scripts/config.local.yaml` out of Git.
 
@@ -124,6 +127,7 @@ Useful flags:
 - `--days-back N`: override the config date window.
 - `--max-papers N`: override the number of ranked papers in the report.
 - `--output-dir DIR`: override the configured output directory.
+- `--no-visuals`: suppress SVG visual overview assets for one run.
 - `--offline-sample`: generate a local sample report without network APIs.
 
 See `references/config-schema.md` for the full configuration schema.
@@ -135,7 +139,9 @@ Each generated report includes:
 - The configured date window and report path.
 - Source status notes for each enabled discovery source.
 - Ranked paper candidates with title, authors, venue, date, DOI, URL, source, and score.
+- SVG visual overviews for ranking score and selected-paper source coverage when enabled.
 - Relevance notes explaining why a paper was ranked.
+- A scholarly reading scaffold for each paper: field positioning, method/evidence, contribution, Devil's Advocate question, and evidence caveat.
 - Abstract text when available and enabled.
 - A reminder to treat abstract-only claims carefully.
 
@@ -148,9 +154,10 @@ The skill entry point is `SKILL.md`. A typical Codex workflow is:
 
 1. Inspect the user's config or start from `scripts/sample_config.yaml`.
 2. Check `references/config-schema.md` before changing config fields.
-3. Run `scripts/literature_digest.py` for the requested date window.
-4. Open the generated Markdown report.
-5. Polish the draft into a final bilingual literature digest while preserving DOI links, source names, URLs, and caveats.
+3. Read `references/academic-review-lens.md` before final polishing.
+4. Run `scripts/literature_digest.py` for the requested date window.
+5. Open the generated Markdown report.
+6. Polish the draft into a final bilingual literature digest while preserving DOI links, source names, URLs, SVG links, and caveats.
 
 ## Repository Safety
 
@@ -159,6 +166,7 @@ Commit public, reusable files:
 - `SKILL.md`
 - `agents/openai.yaml`
 - `references/config-schema.md`
+- `references/academic-review-lens.md`
 - `scripts/literature_digest.py`
 - `scripts/sample_config.yaml`
 - `.env.example`

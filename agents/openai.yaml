@@ -1,4 +1,4 @@
 interface:
   display_name: "Literature Daily Digest"
-  short_description: "Generate local bilingual daily research-paper digests."
-  default_prompt: "Use $literature-daily-digest to generate today's bilingual literature digest from my configured keywords and journals."
+  short_description: "Generate scholarly bilingual daily research-paper digests."
+  default_prompt: "Use $literature-daily-digest to generate today's bilingual literature digest from my configured keywords and journals, then polish the selected papers with scholarly review-style analysis."

@@ -1,6 +1,6 @@
 ---
 name: literature-daily-digest
-description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Scopus/Elsevier/Springer API sources via environment variables, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize newly published papers for a researcher.
+description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Scopus/Elsevier/Springer API sources via environment variables, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, scholarly reviewer-style analysis lenses, optional SVG visual overviews, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize and academically interpret newly published papers for a researcher.
 ---
 
 # Literature Daily Digest
@@ -9,7 +9,8 @@ description: Generate local Markdown daily literature digests from configured re
 
 1. Inspect the user's config file. If none is provided, start from `scripts/sample_config.yaml`; use `scripts/config.local.yaml` only when the user wants their local private watch profile.
 2. Read `references/config-schema.md` when editing config fields or explaining options.
-3. Run the discovery script:
+3. Read `references/academic-review-lens.md` before polishing selected papers into the final digest, especially when the user asks for more academic, peer-review-like interpretation.
+4. Run the discovery script:
 
 ```bash
 python scripts/literature_digest.py --config scripts/sample_config.yaml
@@ -18,8 +19,8 @@ python scripts/literature_digest.py --config scripts/sample_config.yaml
 Use `--date YYYY-MM-DD`, `--days-back N`, `--max-papers N`, or `--output-dir DIR` when the user asks for a specific run window or destination.
 Use `--env-file PATH` only when local secrets live outside the auto-loaded `.env` near the config or current directory.
 
-4. Open the generated Markdown report and refine the paper notes into a final bilingual digest.
-5. Preserve source URLs, DOI links, source names, and failure warnings from the script output.
+5. Open the generated Markdown report and refine the paper notes into a final bilingual digest using the scholarly analysis scaffold.
+6. Preserve source URLs, DOI links, source names, SVG asset links, and failure warnings from the script output.
 
 ## Report Standard
 
@@ -28,11 +29,14 @@ Produce a local Markdown literature daily report with:
 - English paper title exactly as reported by the source.
 - Chinese title translation only when it is useful for scanning; do not replace the English title.
 - Journal or venue, publication date, DOI, URL, source database, and first authors when available.
-- A concise Chinese summary for each paper covering research question, method/data, main result, and relevance to the configured research direction.
+- A concise Chinese summary for each paper covering research question, field positioning, method/data, main result, scholarly contribution, and relevance to the configured research direction.
+- A peer-review-style reading note for selected papers: method/evidence strength, contribution delta, likely reviewer question, and a reading recommendation such as `必读`, `精读`, `略读`, or `观望`.
 - A short English note when the original abstract is especially technical or when a citation-ready phrasing is useful.
 - Explicit caveats when only an abstract is available, when results are preprint-only, or when the source metadata is incomplete.
+- A visual overview when `include_visuals` is enabled; keep generated SVG links intact, and add real paper figures or grounded Mermaid diagrams only when they are supported by accessible evidence.
 
 Do not invent findings that are not present in the title, abstract, or metadata. If the script only captured an abstract, mark claims as "based on abstract only" in the final report.
+For final polishing, use `references/academic-review-lens.md` as the compact fusion of the daily-digest workflow with the academic reviewer-panel approach.
 
 ## Using the Script
 
@@ -71,6 +75,8 @@ For a network-free smoke test, run:
 python scripts/literature_digest.py --config scripts/sample_config.yaml --offline-sample
 ```
 
+Add `--no-visuals` when a text-only draft is preferred.
+
 ## Ranking Guidance
 
 Treat the script score as an explainable first pass, not as a scientific judgment. Prefer papers that:
@@ -82,6 +88,7 @@ Treat the script score as an explainable first pass, not as a scientific judgmen
 - Are directly connected to the user's stated research direction.
 
 High-priority journals should raise ranking but should not exclude other clearly relevant work unless the config uses `journals` as a hard filter.
+The final reading recommendation should come from the scholarly lenses, not from score alone.
 
 ## Configuration
 

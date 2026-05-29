@@ -64,6 +64,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-papers", type=int, help="Override config max_papers.")
     parser.add_argument("--output-dir", help="Override config output_dir.")
     parser.add_argument(
+        "--no-visuals",
+        action="store_true",
+        help="Do not write SVG visual overview assets, even when include_visuals is true in config.",
+    )
+    parser.add_argument(
         "--offline-sample",
         action="store_true",
         help="Generate a local sample report without calling network APIs.",
@@ -193,6 +198,9 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("output_dir", "reports")
     normalized.setdefault("sources", DEFAULT_SOURCES)
     normalized.setdefault("include_abstracts", True)
+    normalized.setdefault("include_scholarly_scaffold", True)
+    normalized.setdefault("include_visuals", True)
+    normalized.setdefault("visuals_dirname", "assets")
     normalized.setdefault("timeout_seconds", 20)
     normalized.setdefault("user_agent", "literature-daily-digest/1.0")
     normalized.setdefault("user_agent_env", "LITERATURE_DIGEST_USER_AGENT")
@@ -211,6 +219,8 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         normalized["max_papers"] = args.max_papers
     if args.output_dir:
         normalized["output_dir"] = args.output_dir
+    if args.no_visuals:
+        normalized["include_visuals"] = False
 
     for key in ["keywords", "journals", "priority_journals", "exclude_keywords", "sources"]:
         normalized[key] = as_string_list(normalized.get(key, []))
@@ -223,6 +233,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         "scopus_abstract_view",
         "elsevier_sciencedirect_view",
         "springer_api_key_env",
+        "visuals_dirname",
     ]:
         normalized[key] = str(normalized.get(key, "") or "").strip()
 
@@ -1156,6 +1167,199 @@ def score_paper(paper: Paper, config: Dict[str, Any], run_date: dt.date) -> Tupl
     return score, reasons
 
 
+def paper_type_label(paper: Paper) -> str:
+    haystack = f"{paper.title} {paper.abstract}".lower()
+    patterns = [
+        ("Systematic review / meta-analysis", ["systematic review", "scoping review", "meta-analysis", "meta analysis"]),
+        ("Computational / machine-learning study", ["machine learning", "deep learning", "foundation model", "segmentation", "classification", "prediction model"]),
+        ("Clinical trial / intervention", ["randomized", "randomised", "clinical trial", "intervention"]),
+        ("Observational clinical study", ["cohort", "case-control", "cross-sectional", "retrospective", "prospective"]),
+        ("Experimental / laboratory study", ["experiment", "in vitro", "in vivo", "animal model", "phantom study"]),
+        ("Qualitative / interview study", ["qualitative", "interview", "focus group", "thematic analysis"]),
+        ("Case study / case series", ["case study", "case series", "case report"]),
+        ("Theoretical / conceptual paper", ["framework", "conceptual", "theory", "perspective"]),
+    ]
+    for label, keywords in patterns:
+        if any(keyword in haystack for keyword in keywords):
+            return label
+    return "Unclassified from metadata"
+
+
+def method_signals(paper: Paper) -> List[str]:
+    haystack = f"{paper.title} {paper.abstract}".lower()
+    signals = [
+        ("systematic review", "systematic review"),
+        ("meta-analysis", "meta-analysis"),
+        ("randomized", "randomized design"),
+        ("retrospective", "retrospective data"),
+        ("prospective", "prospective data"),
+        ("cohort", "cohort design"),
+        ("cross-sectional", "cross-sectional design"),
+        ("deep learning", "deep learning"),
+        ("machine learning", "machine learning"),
+        ("foundation model", "foundation model"),
+        ("segmentation", "segmentation task"),
+        ("classification", "classification task"),
+        ("simulation", "simulation"),
+        ("phantom", "phantom experiment"),
+        ("interview", "interviews"),
+        ("qualitative", "qualitative analysis"),
+    ]
+    found = [label for keyword, label in signals if keyword in haystack]
+    return found[:5]
+
+
+def evidence_readiness(paper: Paper) -> str:
+    if not paper.abstract:
+        return "metadata only"
+    markers = ["abstract"]
+    if paper.doi:
+        markers.append("DOI")
+    if "," in paper.source:
+        markers.append("multi-source match")
+    return " + ".join(markers)
+
+
+def evidence_caveat(paper: Paper) -> str:
+    if not paper.abstract:
+        return "Only metadata was retrieved; do not summarize methods, results, or conclusions beyond title-level signals."
+    return "Based on retrieved abstract and metadata; verify numerical results, figures, and limitations against the full text before final claims."
+
+
+def markdown_cell(value: str, max_chars: int = 88) -> str:
+    value = re.sub(r"\s+", " ", value or "").strip()
+    if len(value) > max_chars:
+        value = value[: max_chars - 3].rstrip() + "..."
+    return value.replace("|", "\\|")
+
+
+def format_overview_table(papers: List[Paper]) -> List[str]:
+    lines = [
+        "| # | Paper | Venue | Type signal | Evidence | Score |",
+        "|---|-------|-------|-------------|----------|-------|",
+    ]
+    for index, paper in enumerate(papers, start=1):
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(index),
+                    markdown_cell(paper.title, 58),
+                    markdown_cell(paper.journal or "not available", 34),
+                    markdown_cell(paper_type_label(paper), 32),
+                    markdown_cell(evidence_readiness(paper), 28),
+                    f"{paper.score:.2f}",
+                ]
+            )
+            + " |"
+        )
+    lines.append("")
+    return lines
+
+
+def safe_path_segment(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())
+    return value.strip(".-") or "assets"
+
+
+def source_counts_from_papers(papers: List[Paper]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for paper in papers:
+        for source in [part.strip() for part in paper.source.split(",") if part.strip()]:
+            counts[source] = counts.get(source, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0].lower())))
+
+
+def write_visual_assets(
+    papers: List[Paper],
+    config: Dict[str, Any],
+    run_date: dt.date,
+    output_dir: Path,
+) -> List[Tuple[str, str]]:
+    if not papers or not as_bool(config.get("include_visuals"), True):
+        return []
+
+    asset_dirname = f"literature-digest-{run_date.isoformat()}-{safe_path_segment(str(config.get('visuals_dirname') or 'assets'))}"
+    asset_dir = output_dir / asset_dirname
+    asset_dir.mkdir(parents=True, exist_ok=True)
+
+    score_path = asset_dir / "ranking-score-overview.svg"
+    score_path.write_text(render_score_svg(papers), encoding="utf-8")
+
+    source_path = asset_dir / "selected-source-coverage.svg"
+    source_path.write_text(render_source_svg(source_counts_from_papers(papers)), encoding="utf-8")
+
+    return [
+        ("Ranking score overview", score_path.relative_to(output_dir).as_posix()),
+        ("Selected paper source coverage", source_path.relative_to(output_dir).as_posix()),
+    ]
+
+
+def render_score_svg(papers: List[Paper]) -> str:
+    width = 940
+    row_height = 54
+    chart_left = 350
+    chart_width = 420
+    height = 96 + row_height * len(papers)
+    max_score = max((paper.score for paper in papers), default=1.0) or 1.0
+    colors = ["#2563eb", "#059669", "#d97706", "#7c3aed", "#dc2626", "#0f766e"]
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="Ranking score overview">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        '<text x="28" y="38" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">Daily Literature Picks</text>',
+        '<text x="28" y="64" font-family="Arial, sans-serif" font-size="13" fill="#4b5563">Ranking scores are discovery signals, not quality judgments.</text>',
+    ]
+    for index, paper in enumerate(papers, start=1):
+        y = 88 + (index - 1) * row_height
+        bar_width = max(8, int((paper.score / max_score) * chart_width))
+        color = colors[(index - 1) % len(colors)]
+        title = html.escape(markdown_cell(f"{index}. {paper.title}", 54), quote=True)
+        score = f"{paper.score:.2f}"
+        parts.extend(
+            [
+                f'<text x="28" y="{y + 22}" font-family="Arial, sans-serif" font-size="13" fill="#111827">{title}</text>',
+                f'<rect x="{chart_left}" y="{y + 6}" width="{chart_width}" height="18" rx="4" fill="#e5e7eb"/>',
+                f'<rect x="{chart_left}" y="{y + 6}" width="{bar_width}" height="18" rx="4" fill="{color}"/>',
+                f'<text x="{chart_left + chart_width + 16}" y="{y + 21}" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#111827">{score}</text>',
+                f'<text x="{chart_left}" y="{y + 42}" font-family="Arial, sans-serif" font-size="12" fill="#6b7280">{html.escape(paper_type_label(paper), quote=True)}</text>',
+            ]
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def render_source_svg(counts: Dict[str, int]) -> str:
+    width = 760
+    row_height = 48
+    height = 86 + row_height * max(1, len(counts))
+    max_count = max(counts.values(), default=1)
+    chart_left = 220
+    chart_width = 360
+    colors = ["#059669", "#2563eb", "#d97706", "#7c3aed", "#dc2626", "#0891b2"]
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="Selected paper source coverage">',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
+        '<text x="28" y="38" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">Source Coverage</text>',
+        '<text x="28" y="62" font-family="Arial, sans-serif" font-size="13" fill="#4b5563">How many selected papers were supported by each source.</text>',
+    ]
+    if not counts:
+        parts.append('<text x="28" y="104" font-family="Arial, sans-serif" font-size="14" fill="#6b7280">No selected papers.</text>')
+    for index, (source, count) in enumerate(counts.items(), start=1):
+        y = 82 + (index - 1) * row_height
+        bar_width = max(10, int((count / max_count) * chart_width))
+        color = colors[(index - 1) % len(colors)]
+        parts.extend(
+            [
+                f'<text x="28" y="{y + 21}" font-family="Arial, sans-serif" font-size="14" fill="#111827">{html.escape(source, quote=True)}</text>',
+                f'<rect x="{chart_left}" y="{y + 6}" width="{chart_width}" height="18" rx="4" fill="#e5e7eb"/>',
+                f'<rect x="{chart_left}" y="{y + 6}" width="{bar_width}" height="18" rx="4" fill="{color}"/>',
+                f'<text x="{chart_left + chart_width + 16}" y="{y + 21}" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#111827">{count}</text>',
+            ]
+        )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
 def write_markdown(
     papers: List[Paper],
     statuses: List[SourceStatus],
@@ -1167,6 +1371,7 @@ def write_markdown(
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"literature-digest-{run_date.isoformat()}.md"
+    visual_assets = write_visual_assets(papers, config, run_date, output_dir)
     lines: List[str] = []
     lines.append(f"# Literature Daily Digest - {run_date.isoformat()}")
     lines.append("")
@@ -1178,6 +1383,8 @@ def write_markdown(
     lines.append(f"- Priority journals: {format_list(config['priority_journals'])}")
     lines.append(f"- Sources: {format_list(config['sources'])}")
     lines.append(f"- Max papers: {config['max_papers']}")
+    lines.append(f"- Scholarly analysis scaffold: {'enabled' if as_bool(config.get('include_scholarly_scaffold'), True) else 'disabled'}")
+    lines.append(f"- Visual overview: {'enabled' if visual_assets else 'disabled'}")
     lines.append("")
     lines.append("## Source Status")
     lines.append("")
@@ -1192,10 +1399,28 @@ def write_markdown(
         lines.append("No papers passed the configured filters. Check the source-status notes above, broaden keywords, or increase `days_back`.")
         lines.append("")
     else:
+        if visual_assets:
+            lines.append("## Visual Overview")
+            lines.append("")
+            for alt_text, relative_path in visual_assets:
+                lines.append(f"![{alt_text}]({relative_path})")
+                lines.append("")
+
+        lines.append("## At A Glance")
+        lines.append("")
+        lines.extend(format_overview_table(papers))
+
         lines.append("## Today's Picks")
         lines.append("")
         for index, paper in enumerate(papers, start=1):
-            lines.extend(format_paper(index, paper, bool(config.get("include_abstracts", True))))
+            lines.extend(
+                format_paper(
+                    index,
+                    paper,
+                    as_bool(config.get("include_abstracts"), True),
+                    as_bool(config.get("include_scholarly_scaffold"), True),
+                )
+            )
 
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return path
@@ -1205,11 +1430,12 @@ def format_list(values: List[str]) -> str:
     return ", ".join(values) if values else "none"
 
 
-def format_paper(index: int, paper: Paper, include_abstract: bool) -> List[str]:
+def format_paper(index: int, paper: Paper, include_abstract: bool, include_scholarly_scaffold: bool) -> List[str]:
     authors = ", ".join(paper.authors[:5])
     if len(paper.authors) > 5:
         authors += ", et al."
     doi_link = f"https://doi.org/{paper.doi}" if paper.doi else ""
+    signals = method_signals(paper)
     lines = [
         f"### {index}. {paper.title}",
         "",
@@ -1221,15 +1447,37 @@ def format_paper(index: int, paper: Paper, include_abstract: bool) -> List[str]:
         f"- Sources: {paper.source}",
         f"- Ranking score: {paper.score:.2f}",
         f"- Match reasons: {'; '.join(paper.reasons)}",
-        "",
-        "**中文总结初稿（待 Codex 精炼）**",
-        "",
-        "- 研究问题：基于题名和摘要初筛，本文可能与配置的研究方向相关。",
-        "- 方法/数据：请在最终日报中根据摘要补充具体方法、数据集、实验设计或理论贡献。",
-        "- 主要结果：仅在摘要明确给出时总结结果；否则标注“摘要未提供充分结果细节”。",
-        "- 相关性：结合上方匹配原因判断其对当前研究关键词或期刊追踪的价值。",
+        f"- Type signal: {paper_type_label(paper)}",
+        f"- Evidence status: {evidence_readiness(paper)}",
         "",
     ]
+    if include_scholarly_scaffold:
+        lines.extend(
+            [
+                "**学术精读框架（待 Codex 基于摘要/全文精炼）**",
+                "",
+                "- 领域定位：确认本文属于哪个问题域、研究范式和目标读者；避免只按关键词做表层归类。",
+                f"- 方法/数据镜头：自动线索为 {', '.join(signals) if signals else '摘要/元数据未显式给出'}；终稿需说明研究设计、数据来源、样本/任务和可重复性边界。",
+                "- 核心发现：只在摘要或全文明确给出时写结论；没有结果细节时标注“摘要未提供充分结果细节”。",
+                "- 贡献判断：用“相比已有研究新增了什么”来概括，不把高分期刊或热点词等同于学术贡献。",
+                "- Devil's Advocate：指出最可能被审稿人追问的一点，例如因果链、泛化范围、对照基线、样本偏倚或替代解释。",
+                f"- 证据边界：{evidence_caveat(paper)}",
+                "- 图文建议：若全文含关键机制图、流程图、模型结构图或核心结果图，终稿优先插入；若只有摘要，不生成伪图。",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "**中文总结初稿（待 Codex 精炼）**",
+                "",
+                "- 研究问题：基于题名和摘要初筛，本文可能与配置的研究方向相关。",
+                "- 方法/数据：请在最终日报中根据摘要补充具体方法、数据集、实验设计或理论贡献。",
+                "- 主要结果：仅在摘要明确给出时总结结果；否则标注“摘要未提供充分结果细节”。",
+                "- 相关性：结合上方匹配原因判断其对当前研究关键词或期刊追踪的价值。",
+                "",
+            ]
+        )
     if include_abstract and paper.abstract:
         lines.extend(["**English Abstract**", "", compact_text(paper.abstract), ""])
     elif include_abstract:

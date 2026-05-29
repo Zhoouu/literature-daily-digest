@@ -71,6 +71,15 @@ At least one of `keywords` or `journals` must be non-empty.
 `include_abstracts`
 : Boolean. Include abstracts in the Markdown draft when available. Default: `true`.
 
+`include_scholarly_scaffold`
+: Boolean. Include the per-paper scholarly analysis scaffold that guides final Codex polishing through field positioning, method/evidence, contribution, Devil's Advocate, evidence caveat, and visual suggestions. Default: `true`.
+
+`include_visuals`
+: Boolean. Write local SVG visual overview assets and embed them in the Markdown report. Current visuals include ranking-score overview and selected-paper source coverage. Default: `true`. Use `--no-visuals` for a text-only run.
+
+`visuals_dirname`
+: Directory suffix for generated SVG assets under `output_dir`, combined with the run date as `literature-digest-YYYY-MM-DD-<visuals_dirname>`. Default: `assets`.
+
 ## CLI Overrides
 
 The command line can override config values:
@@ -80,6 +89,8 @@ python scripts/literature_digest.py --config scripts/sample_config.yaml --date 2
 ```
 
 Use `--offline-sample` to generate a local sample report without network calls.
+
+Use `--no-visuals` to suppress SVG asset generation for a single run.
 
 Use `--env-file` when secrets live somewhere other than the auto-loaded `.env` near the config or current directory:
 
@@ -141,6 +152,7 @@ Commit these files:
 - `SKILL.md`
 - `agents/openai.yaml`
 - `references/config-schema.md`
+- `references/academic-review-lens.md`
 - `scripts/literature_digest.py`
 - `scripts/sample_config.yaml`
 - `.env.example`
