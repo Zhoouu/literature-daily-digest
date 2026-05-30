@@ -239,6 +239,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("elsevier_article_retrieval_accept", "text/xml")
     normalized.setdefault("springer_api_key_env", "SPRINGER_NATURE_API_KEY")
     normalized.setdefault("springer_openaccess_api_key_env", "SPRINGER_OPENACCESS_API_KEY")
+    normalized.setdefault("springer_no_proxy", True)
 
     if args.days_back is not None:
         normalized["days_back"] = args.days_back
@@ -369,10 +370,13 @@ def request_text(url: str, config: Dict[str, Any], extra_headers: Optional[Dict[
 
 
 def should_bypass_proxy(url: str, config: Dict[str, Any]) -> bool:
-    if not as_bool(config.get("elsevier_no_proxy"), True):
-        return False
     host = urllib.parse.urlparse(url).hostname or ""
-    return host.lower() == "api.elsevier.com"
+    host = host.lower()
+    if host == "api.elsevier.com":
+        return as_bool(config.get("elsevier_no_proxy"), True)
+    if host == "api.springernature.com":
+        return as_bool(config.get("springer_no_proxy"), True)
+    return False
 
 
 def strip_markup(value: str) -> str:
@@ -456,6 +460,20 @@ def quoted_or_query(terms: List[str]) -> str:
     if not cleaned:
         return ""
     return " OR ".join(f'"{term}"' if " " in term else term for term in cleaned)
+
+
+def springer_query(terms: List[str]) -> str:
+    cleaned = [term.replace('"', "").strip() for term in terms if term.strip()]
+    return " OR ".join(cleaned)
+
+
+def springer_date_query(query: str, start: dt.date, end: dt.date) -> str:
+    query = (query or "").strip()
+    if not query:
+        return ""
+    if " OR " in query and not (query.startswith("(") and query.endswith(")")):
+        query = f"({query})"
+    return f"{query} datefrom:{start.isoformat()} dateto:{end.isoformat()}"
 
 
 def scopus_query(config: Dict[str, Any]) -> str:
@@ -1313,7 +1331,7 @@ def fetch_springer(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
             f"Springer Nature skipped: set environment variable {env_name} and enable source 'springer'.",
             0,
         )
-    queries = [quoted_or_query(config["keywords"] or config["journals"])]
+    queries = [springer_query(config["keywords"] or config["journals"])]
     watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
     if watch_rows:
         queries.extend(journal_discovery_terms(config)[:30])
@@ -1321,7 +1339,7 @@ def fetch_springer(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
     try:
         records: List[Dict[str, Any]] = []
         attempted = 0
-        for query in [item for item in queries if item]:
+        for query in [springer_date_query(item, start, end) for item in queries if item]:
             params = {
                 "api_key": api_key,
                 "q": query,
@@ -1378,7 +1396,7 @@ def fetch_springer_openaccess(config: Dict[str, Any], start: dt.date, end: dt.da
             f"Springer Nature OpenAccess skipped: set environment variable {env_name} and enable source 'springer-openaccess'.",
             0,
         )
-    queries = [quoted_or_query(config["keywords"] or config["journals"])]
+    queries = [springer_query(config["keywords"] or config["journals"])]
     watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
     if watch_rows:
         queries.extend(journal_discovery_terms(config)[:30])
@@ -1386,7 +1404,7 @@ def fetch_springer_openaccess(config: Dict[str, Any], start: dt.date, end: dt.da
     try:
         records: List[Dict[str, Any]] = []
         attempted = 0
-        for query in [item for item in queries if item]:
+        for query in [springer_date_query(item, start, end) for item in queries if item]:
             params = {
                 "api_key": api_key,
                 "q": query,

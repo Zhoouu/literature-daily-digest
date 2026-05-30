@@ -129,6 +129,10 @@ If a local proxy or VPN changes the public egress IP, keep
 HTTP(S) proxy only for `api.elsevier.com`; other discovery sources keep the
 normal proxy behavior.
 
+For Springer Nature keys tied to a campus or official VPN IP, keep
+`springer_no_proxy: true`. The script will bypass the system HTTP(S) proxy for
+`api.springernature.com`, covering both `springer` and `springer-openaccess`.
+
 ## CLI Options
 
 ```bash

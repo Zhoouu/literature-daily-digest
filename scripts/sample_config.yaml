@@ -118,3 +118,4 @@ elsevier_article_retrieval_view: FULL
 elsevier_article_retrieval_accept: text/xml
 springer_api_key_env: SPRINGER_NATURE_API_KEY
 springer_openaccess_api_key_env: SPRINGER_OPENACCESS_API_KEY
+springer_no_proxy: true

@@ -83,6 +83,9 @@ At least one of `keywords` or `journals` must be non-empty.
 `springer_openaccess_api_key_env`
 : Environment variable that stores a Springer Nature OpenAccess API key. Default: `SPRINGER_OPENACCESS_API_KEY`, with runtime fallback to `SPRINGER_NATURE_API_KEY` or `SPRINGER_API_KEY` if the dedicated variable is empty. Only used when `sources` includes `springer-openaccess`, `springer-oa`, or `openaccess`.
 
+`springer_no_proxy`
+: Boolean. When `true`, requests to `api.springernature.com` bypass the local/system HTTP(S) proxy so Springer Nature sees the machine's direct network egress, while other sources keep normal proxy behavior. Default: `true`. This mirrors `elsevier_no_proxy` and is useful when API entitlement depends on a campus or official VPN IP.
+
 `user_agent`
 : Optional HTTP user agent string. Keep the public sample generic. Put personal contact information in a local `.env` file through `user_agent_env`.
 
@@ -186,6 +189,8 @@ Scopus Search access does not guarantee abstract payload access. With a basic Sc
 Full-text enrichment is separate from search. After the script ranks selected papers, it can call Elsevier Article Retrieval by DOI, PII, EID, Scopus ID, or PubMed ID and store extracted body text under the report output directory. Elsevier may return only abstract/metadata or HTTP 401/403 when the key or institutional token lacks article entitlements; the report keeps those notes so final summaries can distinguish full-text evidence from abstract-only evidence.
 
 When a local proxy or VPN exposes a non-institutional egress IP, keep `elsevier_no_proxy: true` so only Elsevier API calls bypass the proxy. This is useful when the institution recognizes direct campus or official VPN IPs. It does not change PubMed, arXiv, Crossref, OpenAlex, or Springer requests.
+
+For Springer Nature Meta/OpenAccess, keep `springer_no_proxy: true` when entitlement depends on direct campus or official VPN egress. Both `springer` and `springer-openaccess` use `api.springernature.com`, so this bypass applies to both.
 
 Scopus Search date filtering is less precise than PubMed/Crossref/OpenAlex in this script: the API request is limited by publication year and sorted by original load date, then the report keeps the returned candidates. Scopus `coverDate` can point to a future issue date.
 

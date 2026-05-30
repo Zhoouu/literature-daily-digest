@@ -78,6 +78,9 @@ problem, not as evidence that the paper has no abstract. Use
 Keep `elsevier_no_proxy: true` when a local proxy or VPN changes the public
 egress IP; this bypasses the system HTTP(S) proxy only for `api.elsevier.com`
 and leaves the other sources unchanged.
+Keep `springer_no_proxy: true` for the same reason when using Springer Nature
+Meta or OpenAccess; it bypasses the system HTTP(S) proxy for
+`api.springernature.com`.
 
 Keep API keys, contact emails, and user-specific research profiles out of committed files. Use local `.env` for keys and `LITERATURE_DIGEST_USER_AGENT`, and use `scripts/config.local.yaml` or another ignored config for private topics.
 
