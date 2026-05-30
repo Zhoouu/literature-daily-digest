@@ -7,29 +7,82 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <div class="color-rail" aria-hidden="true"></div>
     <div class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Local skill setup</p>
-          <h1>Literature Daily Digest</h1>
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <span class="brand-blue"></span>
+            <span class="brand-red"></span>
+            <span class="brand-yellow"></span>
+            <span class="brand-green"></span>
+          </div>
+          <div>
+            <p class="eyebrow">Local skill setup</p>
+            <h1>Literature Daily Digest</h1>
+          </div>
         </div>
         <div class="topbar-actions">
+          <span class="state-pill saved" id="dirtyBadge">Saved</span>
           <button class="button secondary" id="loadSampleButton" type="button">Load Sample</button>
           <button class="button primary" id="saveButton" type="button">Save</button>
         </div>
       </header>
 
       <nav class="tabs" aria-label="Configuration sections">
-        <button class="tab active" data-tab="profile" type="button">Profile</button>
-        <button class="tab" data-tab="sources" type="button">Sources</button>
-        <button class="tab" data-tab="report" type="button">Report</button>
-        <button class="tab" data-tab="api" type="button">API</button>
-        <button class="tab" data-tab="run" type="button">Run</button>
+        <button class="tab active" data-tab="profile" type="button">
+          <span class="tab-icon tab-blue" aria-hidden="true"></span>
+          <span>Profile</span>
+          <span class="tab-state" id="profileTabState" aria-hidden="true"></span>
+        </button>
+        <button class="tab" data-tab="sources" type="button">
+          <span class="tab-icon tab-green" aria-hidden="true"></span>
+          <span>Sources</span>
+          <span class="tab-state" id="sourcesTabState" aria-hidden="true"></span>
+        </button>
+        <button class="tab" data-tab="report" type="button">
+          <span class="tab-icon tab-yellow" aria-hidden="true"></span>
+          <span>Report</span>
+          <span class="tab-state" id="reportTabState" aria-hidden="true"></span>
+        </button>
+        <button class="tab" data-tab="api" type="button">
+          <span class="tab-icon tab-red" aria-hidden="true"></span>
+          <span>API</span>
+          <span class="tab-state" id="apiTabState" aria-hidden="true"></span>
+        </button>
+        <button class="tab" data-tab="run" type="button">
+          <span class="tab-icon tab-blue" aria-hidden="true"></span>
+          <span>Run</span>
+          <span class="tab-state" id="runTabState" aria-hidden="true"></span>
+        </button>
       </nav>
+
+      <section class="command-center" aria-label="Configuration overview">
+        <button class="metric-card metric-blue" data-jump-tab="profile" type="button">
+          <span class="metric-value" id="profileMetric">0</span>
+          <span class="metric-label">Search Terms</span>
+          <span class="metric-note" id="profileInsight">Waiting</span>
+        </button>
+        <button class="metric-card metric-green" data-jump-tab="sources" type="button">
+          <span class="metric-value" id="sourceMetric">0</span>
+          <span class="metric-label">Sources</span>
+          <span class="metric-note" id="sourceInsight">Waiting</span>
+        </button>
+        <button class="metric-card metric-red" data-jump-tab="api" type="button">
+          <span class="metric-value" id="apiMetric">0</span>
+          <span class="metric-label">API Ready</span>
+          <span class="metric-note" id="apiInsight">Waiting</span>
+        </button>
+        <button class="metric-card metric-yellow" data-jump-tab="run" type="button">
+          <span class="metric-value" id="runMetric">0</span>
+          <span class="metric-label">Run Blocks</span>
+          <span class="metric-note" id="runInsight">Waiting</span>
+        </button>
+      </section>
 
       <main>
         <section class="tab-panel active" id="profilePanel">
-          <div class="panel">
+          <div class="panel accent-blue">
             <div class="panel-heading">
               <h2>Research Profile</h2>
               <span class="path-badge" id="loadedFromBadge">Loading</span>
@@ -38,40 +91,53 @@
               <label class="field wide">
                 <span>Keywords</span>
                 <textarea id="keywords" rows="6" spellcheck="false"></textarea>
+                <small class="field-meta" id="keywordsMeta">0 terms</small>
               </label>
               <label class="field wide">
                 <span>Hard Journal Filter</span>
                 <textarea id="journals" rows="4" spellcheck="false"></textarea>
+                <small class="field-meta" id="journalsMeta">0 filters</small>
               </label>
               <label class="field wide">
                 <span>Priority Journals</span>
                 <textarea id="priority_journals" rows="8" spellcheck="false"></textarea>
+                <small class="field-meta" id="priorityJournalsMeta">0 journals</small>
               </label>
               <label class="field wide">
                 <span>Nature Portfolio Journals</span>
                 <textarea id="nature_portfolio_journals" rows="8" spellcheck="false"></textarea>
+                <small class="field-meta" id="naturePortfolioMeta">0 journals</small>
               </label>
               <label class="field">
                 <span>Publisher Watch Terms</span>
                 <textarea id="publisher_watch_terms" rows="5" spellcheck="false"></textarea>
+                <small class="field-meta" id="publisherWatchMeta">0 terms</small>
               </label>
               <label class="field">
                 <span>OpenAlex Publisher IDs</span>
                 <textarea id="openalex_publisher_ids" rows="5" spellcheck="false"></textarea>
+                <small class="field-meta" id="openalexPublisherMeta">0 IDs</small>
               </label>
               <label class="field wide">
                 <span>Exclude Keywords</span>
                 <textarea id="exclude_keywords" rows="4" spellcheck="false"></textarea>
+                <small class="field-meta" id="excludeKeywordsMeta">0 exclusions</small>
               </label>
             </div>
           </div>
         </section>
 
         <section class="tab-panel" id="sourcesPanel">
-          <div class="panel">
+          <div class="panel accent-green">
             <div class="panel-heading">
               <h2>Discovery Sources</h2>
               <span class="path-badge" id="sourceCountBadge">0 enabled</span>
+            </div>
+            <div class="preset-row" aria-label="Source presets">
+              <button class="preset-chip" data-source-preset="public" type="button">Public</button>
+              <button class="preset-chip" data-source-preset="biomed" type="button">Biomed</button>
+              <button class="preset-chip" data-source-preset="nature" type="button">Nature</button>
+              <button class="preset-chip" data-source-preset="publisher" type="button">Publisher APIs</button>
             </div>
             <div class="source-grid" id="sourceGrid"></div>
             <div class="form-grid compact">
@@ -108,11 +174,12 @@
         </section>
 
         <section class="tab-panel" id="reportPanel">
-          <div class="panel">
+          <div class="panel accent-yellow">
             <div class="panel-heading">
               <h2>Report Output</h2>
               <span class="path-badge" id="configPathBadge"></span>
             </div>
+            <div class="run-plan compact-plan" id="reportPlan"></div>
             <div class="form-grid compact">
               <label class="field wide">
                 <span>Output Directory</span>
@@ -171,11 +238,12 @@
         </section>
 
         <section class="tab-panel" id="apiPanel">
-          <div class="panel">
+          <div class="panel accent-red">
             <div class="panel-heading">
               <h2>API And Network</h2>
               <span class="path-badge" id="envPathBadge"></span>
             </div>
+            <div class="api-readiness" id="apiReadiness"></div>
             <div class="form-grid compact">
               <label class="field wide">
                 <span>User Agent</span>
@@ -211,7 +279,7 @@
               </label>
             </div>
           </div>
-          <div class="panel">
+          <div class="panel accent-blue">
             <div class="panel-heading">
               <h2>Advanced API Binding</h2>
             </div>
@@ -282,11 +350,12 @@
         </section>
 
         <section class="tab-panel" id="runPanel">
-          <div class="panel">
+          <div class="panel accent-blue">
             <div class="panel-heading">
               <h2>Run</h2>
               <span class="path-badge" id="runStatusBadge">Ready</span>
             </div>
+            <div class="run-plan" id="runPlan"></div>
             <div class="command-row">
               <input id="runCommand" readonly type="text" />
               <button class="button secondary" id="copyRunButton" type="button">Copy</button>
@@ -301,7 +370,7 @@
             </div>
             <pre class="run-output" id="runOutput"></pre>
           </div>
-          <div class="panel">
+          <div class="panel accent-green">
             <div class="panel-heading">
               <h2>Status</h2>
             </div>
