@@ -17,6 +17,21 @@ At least one of `keywords` or `journals` must be non-empty.
 `priority_journals`
 : List of preferred high-level journals or venues. These raise ranking but do not exclude other relevant papers.
 
+`discover_priority_journals`
+: Boolean. When `true`, journal names in `priority_journals` and `nature_portfolio_journals` are also used for journal-watch discovery in sources that support it. Default: `true`. This matters because ranking boosts do not help papers that were never fetched.
+
+`journal_watch_per_term`
+: Number of extra candidates to fetch for each watched journal/publisher query path. Default: `8`. Increase this when tracking broad publishers such as Springer Nature, or set to `0` to disable journal-watch expansion.
+
+`publisher_watch_terms`
+: Publisher display-name fragments used for ranking and reporting, such as `Springer Nature` or `Nature Portfolio`. These do not create API-specific publisher filters by themselves; use `openalex_publisher_ids` for no-key OpenAlex publisher watch.
+
+`openalex_publisher_ids`
+: OpenAlex publisher IDs or URLs used for publisher-watch discovery. For Springer Nature, use `https://openalex.org/P4310319965`. The script adds OpenAlex publisher-lineage queries after the normal keyword query.
+
+`nature_portfolio_journals`
+: Extra Nature Portfolio journal names used for discovery and ranking, useful for catching Article, Perspective, Review, Analysis, and related section types across the Nature family.
+
 `exclude_keywords`
 : List of terms that remove a paper when found in the title, abstract, or journal name.
 
@@ -30,7 +45,10 @@ At least one of `keywords` or `journals` must be non-empty.
 : Directory where Markdown reports are written. Relative paths are resolved from the current working directory where the script is run. Default: `reports`.
 
 `sources`
-: List of enabled discovery sources. Supported values: `pubmed`, `arxiv`, `crossref`, `openalex`, `scopus`, `elsevier`, `springer`. Default: the first four public/no-key sources. `scopus`, `elsevier`, and `springer` are optional API-key sources.
+: List of enabled discovery sources. Supported values: `pubmed`, `arxiv`, `crossref`, `openalex`, `scopus`, `elsevier`, `springer`, `springer-openaccess`. Default: the first four public/no-key sources. `scopus`, `elsevier`, `springer`, and `springer-openaccess` are optional API-key sources.
+
+`content_type`
+: Not a user-set config field; generated reports display each source's article/content type when available. Springer Nature Meta can provide values such as Article, Review Article, Perspective, Brief Communication, or Analysis. Crossref/OpenAlex provide broader type labels.
 
 `elsevier_api_key_env`
 : Environment variable that stores an Elsevier API key for Scopus Search, optional Scopus Abstract Retrieval, and optional ScienceDirect Search. Default: `ELSEVIER_API_KEY`. Used when `sources` includes `scopus`, `elsevier`, or `sciencedirect`.
@@ -61,6 +79,9 @@ At least one of `keywords` or `journals` must be non-empty.
 
 `springer_api_key_env`
 : Environment variable that stores a Springer Nature API key for the Meta API. Default: `SPRINGER_NATURE_API_KEY`. Only used when `sources` includes `springer` or `springer-nature`.
+
+`springer_openaccess_api_key_env`
+: Environment variable that stores a Springer Nature OpenAccess API key. Default: `SPRINGER_OPENACCESS_API_KEY`, with runtime fallback to `SPRINGER_NATURE_API_KEY` or `SPRINGER_API_KEY` if the dedicated variable is empty. Only used when `sources` includes `springer-openaccess`, `springer-oa`, or `openaccess`.
 
 `user_agent`
 : Optional HTTP user agent string. Keep the public sample generic. Put personal contact information in a local `.env` file through `user_agent_env`.
@@ -174,10 +195,11 @@ Do not put API keys in YAML. To enable publisher APIs, create a local `.env` fil
 $env:LITERATURE_DIGEST_USER_AGENT = "literature-daily-digest/1.0 (mailto:your-email@example.com)"
 $env:ELSEVIER_API_KEY = "your-elsevier-key"
 $env:ELSEVIER_INSTTOKEN = "your-elsevier-insttoken-if-issued"
-$env:SPRINGER_NATURE_API_KEY = "your-springer-key"
+$env:SPRINGER_NATURE_API_KEY = "your-springer-meta-key"
+$env:SPRINGER_OPENACCESS_API_KEY = "your-springer-openaccess-key"
 ```
 
-Then add `scopus`, `elsevier`, and/or `springer` under `sources`.
+Then add `scopus`, `elsevier`, `springer`, and/or `springer-openaccess` under `sources`.
 
 ## GitHub-Safe Layout
 

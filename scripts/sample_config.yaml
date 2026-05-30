@@ -15,11 +15,52 @@ priority_journals:
   - Nature
   - Science
   - Cell
+  - Science Advances
+  - Cell Reports Medicine
+  - Nature Communications
   - Nature Biomedical Engineering
+  - Nature Medicine
   - Nature Methods
+  - Nature Materials
+  - Nature Nanotechnology
+  - Nature Machine Intelligence
+  - Nature Computational Science
+  - Nature Reviews Bioengineering
+  - npj Digital Medicine
+  - Communications Medicine
   - IEEE Transactions on Medical Imaging
   - Medical Image Analysis
   - Radiology
+
+discover_priority_journals: true
+journal_watch_per_term: 8
+publisher_watch_terms:
+  - Springer Nature
+  - Nature Portfolio
+openalex_publisher_ids:
+  # Springer Nature in OpenAlex. Enables no-key publisher watch through OpenAlex.
+  - https://openalex.org/P4310319965
+nature_portfolio_journals:
+  - Nature
+  - Nature Communications
+  - Nature Biomedical Engineering
+  - Nature Medicine
+  - Nature Methods
+  - Nature Materials
+  - Nature Nanotechnology
+  - Nature Machine Intelligence
+  - Nature Computational Science
+  - Nature Reviews Bioengineering
+  - Nature Reviews Materials
+  - Nature Reviews Physics
+  - Nature Reviews Genetics
+  - Nature Reviews Clinical Oncology
+  - npj Digital Medicine
+  - npj Flexible Electronics
+  - Communications Medicine
+  - Communications Engineering
+  - Communications Materials
+  - Scientific Reports
 
 exclude_keywords:
   - conference abstract
@@ -39,6 +80,7 @@ sources:
   # - scopus
   # - elsevier
   # - springer
+  # - springer-openaccess
 
 include_abstracts: true
 # Try to retrieve full text for selected papers after ranking. The default
@@ -75,3 +117,4 @@ elsevier_sciencedirect_view: COMPLETE
 elsevier_article_retrieval_view: FULL
 elsevier_article_retrieval_accept: text/xml
 springer_api_key_env: SPRINGER_NATURE_API_KEY
+springer_openaccess_api_key_env: SPRINGER_OPENACCESS_API_KEY

@@ -38,6 +38,8 @@ class Paper:
     doi: str = ""
     url: str = ""
     abstract: str = ""
+    content_type: str = ""
+    publisher: str = ""
     full_text: str = ""
     full_text_source: str = ""
     full_text_path: str = ""
@@ -201,6 +203,11 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("keywords", [])
     normalized.setdefault("journals", [])
     normalized.setdefault("priority_journals", [])
+    normalized.setdefault("discover_priority_journals", True)
+    normalized.setdefault("journal_watch_per_term", 8)
+    normalized.setdefault("nature_portfolio_journals", [])
+    normalized.setdefault("publisher_watch_terms", [])
+    normalized.setdefault("openalex_publisher_ids", [])
     normalized.setdefault("exclude_keywords", [])
     normalized.setdefault("days_back", 1)
     normalized.setdefault("max_papers", 10)
@@ -231,6 +238,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("elsevier_article_retrieval_view", "FULL")
     normalized.setdefault("elsevier_article_retrieval_accept", "text/xml")
     normalized.setdefault("springer_api_key_env", "SPRINGER_NATURE_API_KEY")
+    normalized.setdefault("springer_openaccess_api_key_env", "SPRINGER_OPENACCESS_API_KEY")
 
     if args.days_back is not None:
         normalized["days_back"] = args.days_back
@@ -245,7 +253,17 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         normalized["include_per_paper_visuals"] = False
         normalized["include_overview_visuals"] = False
 
-    for key in ["keywords", "journals", "priority_journals", "exclude_keywords", "sources", "full_text_sources"]:
+    for key in [
+        "keywords",
+        "journals",
+        "priority_journals",
+        "nature_portfolio_journals",
+        "publisher_watch_terms",
+        "openalex_publisher_ids",
+        "exclude_keywords",
+        "sources",
+        "full_text_sources",
+    ]:
         normalized[key] = as_string_list(normalized.get(key, []))
 
     for key in [
@@ -258,6 +276,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         "elsevier_article_retrieval_view",
         "elsevier_article_retrieval_accept",
         "springer_api_key_env",
+        "springer_openaccess_api_key_env",
         "visuals_dirname",
         "full_text_dirname",
     ]:
@@ -272,6 +291,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized["days_back"] = max(1, int(normalized.get("days_back", 1)))
     normalized["max_papers"] = max(1, int(normalized.get("max_papers", 10)))
     normalized["timeout_seconds"] = max(5, int(normalized.get("timeout_seconds", 20)))
+    normalized["journal_watch_per_term"] = max(0, int(normalized.get("journal_watch_per_term") or 8))
     default_candidates = max(normalized["max_papers"] * 4, 20)
     normalized["max_candidates_per_source"] = max(
         1,
@@ -382,6 +402,53 @@ def normalize_doi(value: str) -> str:
 def build_query(config: Dict[str, Any]) -> str:
     terms = config["keywords"] or config["journals"]
     return " OR ".join(terms)
+
+
+def journal_discovery_terms(config: Dict[str, Any]) -> List[str]:
+    terms: List[str] = []
+    terms.extend(config.get("journals", []))
+    if as_bool(config.get("discover_priority_journals"), True):
+        terms.extend(config.get("priority_journals", []))
+        terms.extend(config.get("nature_portfolio_journals", []))
+    seen: set[str] = set()
+    unique_terms: List[str] = []
+    for term in terms:
+        normalized = re.sub(r"\s+", " ", str(term or "")).strip()
+        key = normalized.lower()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        unique_terms.append(normalized)
+    return unique_terms
+
+
+def article_filter(config: Dict[str, Any], start: dt.date, end: dt.date) -> str:
+    # Keep Crossref on journal-article to include Article, Perspective, Review,
+    # News & Views, and other journal section labels while excluding books.
+    return f"from-pub-date:{start.isoformat()},until-pub-date:{end.isoformat()},type:journal-article"
+
+
+def openalex_base_filters(start: dt.date, end: dt.date) -> List[str]:
+    # Do not force OpenAlex type:article; Nature Perspective/Editorial/Review
+    # records can use other work types. Restrict to journal sources instead.
+    return [
+        f"from_publication_date:{start.isoformat()}",
+        f"to_publication_date:{end.isoformat()}",
+        "primary_location.source.type:source-types/journal",
+    ]
+
+
+def openalex_publisher_filter(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    if value.startswith("http"):
+        publisher_id = value
+    elif value.startswith("P"):
+        publisher_id = "https://openalex.org/" + value
+    else:
+        publisher_id = value
+    return "primary_location.source.publisher_lineage:" + publisher_id
 
 
 def quoted_or_query(terms: List[str]) -> str:
@@ -590,9 +657,11 @@ def find_text_ns(node: ET.Element, path: str, ns: Dict[str, str]) -> str:
 
 
 def fetch_crossref(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
+    items: List[Dict[str, Any]] = []
+    notes: List[str] = []
     params = {
         "query.bibliographic": build_query(config),
-        "filter": f"from-pub-date:{start.isoformat()},until-pub-date:{end.isoformat()},type:journal-article",
+        "filter": article_filter(config, start, end),
         "sort": "published",
         "order": "desc",
         "rows": str(config["max_candidates_per_source"]),
@@ -600,10 +669,33 @@ def fetch_crossref(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
     url = "https://api.crossref.org/works?" + urllib.parse.urlencode(params)
     try:
         data = json.loads(request_text(url, config))
-        items = data.get("message", {}).get("items", [])
+        items.extend(data.get("message", {}).get("items", []))
+        notes.append(f"main query {len(items)} records")
+
+        watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 25)
+        journal_terms = journal_discovery_terms(config)
+        if watch_rows and journal_terms:
+            for journal in journal_terms[:30]:
+                journal_params = {
+                    "query.container-title": journal,
+                    "filter": article_filter(config, start, end),
+                    "sort": "published",
+                    "order": "desc",
+                    "rows": str(watch_rows),
+                }
+                journal_url = "https://api.crossref.org/works?" + urllib.parse.urlencode(journal_params)
+                try:
+                    journal_data = json.loads(request_text(journal_url, config))
+                    found = journal_data.get("message", {}).get("items", [])
+                    items.extend(found)
+                    time.sleep(0.05)
+                except Exception:  # noqa: BLE001
+                    continue
+            notes.append(f"journal watch {len(journal_terms[:30])} terms")
+
         papers = [parse_crossref_item(item) for item in items]
         papers = [paper for paper in papers if paper.title]
-        return papers, SourceStatus("crossref", True, "Fetched Crossref records.", len(papers))
+        return papers, SourceStatus("crossref", True, "Fetched Crossref records (" + "; ".join(notes) + ").", len(papers))
     except Exception as exc:  # noqa: BLE001
         return [], SourceStatus("crossref", False, f"Crossref failed: {exc}", 0)
 
@@ -620,6 +712,8 @@ def parse_crossref_item(item: Dict[str, Any]) -> Paper:
     url = item.get("URL", "") or (f"https://doi.org/{doi}" if doi else "")
     abstract = strip_markup(item.get("abstract", ""))
     published = date_parts_to_iso(item.get("published-print") or item.get("published-online") or item.get("published"))
+    content_type = str(item.get("subtype") or item.get("type") or "")
+    publisher = str(item.get("publisher") or "")
     return Paper(
         title=strip_markup(title),
         authors=authors,
@@ -628,13 +722,15 @@ def parse_crossref_item(item: Dict[str, Any]) -> Paper:
         doi=doi,
         url=url,
         abstract=abstract,
+        content_type=strip_markup(content_type),
+        publisher=strip_markup(publisher),
         source="Crossref",
         source_id=doi,
     )
 
 
 def fetch_openalex(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
-    filters = f"from_publication_date:{start.isoformat()},to_publication_date:{end.isoformat()},type:article"
+    filters = ",".join(openalex_base_filters(start, end))
     params = {
         "search": build_query(config),
         "filter": filters,
@@ -643,11 +739,36 @@ def fetch_openalex(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
     }
     url = "https://api.openalex.org/works?" + urllib.parse.urlencode(params)
     try:
+        items: List[Dict[str, Any]] = []
+        notes: List[str] = []
         data = json.loads(request_text(url, config))
-        items = data.get("results", [])
+        main_items = data.get("results", [])
+        items.extend(main_items)
+        notes.append(f"main query {len(main_items)} records")
+
+        watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
+        publisher_ids = [openalex_publisher_filter(value) for value in config.get("openalex_publisher_ids", [])]
+        publisher_ids = [value for value in publisher_ids if value]
+        if watch_rows and publisher_ids:
+            for publisher_filter in publisher_ids[:10]:
+                publisher_params = {
+                    "filter": ",".join(openalex_base_filters(start, end) + [publisher_filter]),
+                    "sort": "publication_date:desc",
+                    "per-page": str(watch_rows),
+                }
+                publisher_url = "https://api.openalex.org/works?" + urllib.parse.urlencode(publisher_params)
+                try:
+                    publisher_data = json.loads(request_text(publisher_url, config))
+                    found = publisher_data.get("results", [])
+                    items.extend(found)
+                    time.sleep(0.05)
+                except Exception:  # noqa: BLE001
+                    continue
+            notes.append(f"publisher watch {len(publisher_ids[:10])} publisher id(s)")
+
         papers = [parse_openalex_item(item) for item in items]
         papers = [paper for paper in papers if paper.title]
-        return papers, SourceStatus("openalex", True, "Fetched OpenAlex records.", len(papers))
+        return papers, SourceStatus("openalex", True, "Fetched OpenAlex records (" + "; ".join(notes) + ").", len(papers))
     except Exception as exc:  # noqa: BLE001
         return [], SourceStatus("openalex", False, f"OpenAlex failed: {exc}", 0)
 
@@ -662,9 +783,11 @@ def parse_openalex_item(item: Dict[str, Any]) -> Paper:
     primary_location = item.get("primary_location") or {}
     source_info = primary_location.get("source") or {}
     journal = source_info.get("display_name", "") or item.get("host_venue", {}).get("display_name", "")
+    publisher = source_info.get("publisher") or source_info.get("host_organization_name") or ""
     doi = normalize_doi(item.get("doi") or "")
     url = item.get("doi") or item.get("id", "")
     abstract = inverted_index_to_text(item.get("abstract_inverted_index") or {})
+    content_type = item.get("type") or item.get("type_crossref") or ""
     return Paper(
         title=strip_markup(title),
         authors=authors,
@@ -673,6 +796,8 @@ def parse_openalex_item(item: Dict[str, Any]) -> Paper:
         doi=doi,
         url=url,
         abstract=strip_markup(abstract),
+        content_type=strip_markup(str(content_type)),
+        publisher=strip_markup(str(publisher)),
         source="OpenAlex",
         source_id=item.get("id", ""),
     )
@@ -731,6 +856,8 @@ def parse_elsevier_entry(entry: Dict[str, Any]) -> Paper:
     abstract = entry.get("dc:description") or entry.get("description") or ""
     published = entry.get("prism:coverDate") or entry.get("coverDate") or entry.get("prism:coverDisplayDate") or ""
     authors = parse_authorish(entry.get("authors") or entry.get("author") or entry.get("dc:creator"))
+    content_type = entry.get("subtypeDescription") or entry.get("prism:aggregationType") or entry.get("type") or ""
+    publisher = entry.get("publisher") or "Elsevier"
     return Paper(
         title=strip_markup(str(title)),
         authors=authors[:8],
@@ -739,6 +866,8 @@ def parse_elsevier_entry(entry: Dict[str, Any]) -> Paper:
         doi=doi,
         url=str(url),
         abstract=strip_markup(str(abstract)),
+        content_type=strip_markup(str(content_type)),
+        publisher=strip_markup(str(publisher)),
         source="Elsevier ScienceDirect",
         source_id=doi,
     )
@@ -998,6 +1127,8 @@ def write_full_text_artifact(
         f"Title: {paper.title}",
         f"DOI: {paper.doi or 'not available'}",
         f"URL: {paper.url or 'not available'}",
+        f"Publisher: {paper.publisher or 'not available'}",
+        f"Content type: {paper.content_type or 'not available'}",
         f"Full text source: {paper.full_text_source or 'not available'}",
         f"Status: {paper.full_text_status or 'retrieved'}",
         "",
@@ -1156,6 +1287,8 @@ def parse_scopus_entry(entry: Dict[str, Any]) -> Paper:
     published = entry.get("prism:coverDate") or entry.get("coverDate") or ""
     source_id = str(entry.get("dc:identifier") or entry.get("eid") or doi)
     authors = parse_authorish(entry.get("author") or entry.get("dc:creator"))
+    content_type = entry.get("subtypeDescription") or entry.get("subtype") or entry.get("prism:aggregationType") or ""
+    publisher = entry.get("publisher") or "Elsevier"
     return Paper(
         title=strip_markup(str(title)),
         authors=authors[:8],
@@ -1164,6 +1297,8 @@ def parse_scopus_entry(entry: Dict[str, Any]) -> Paper:
         doi=doi,
         url=str(url),
         abstract=strip_markup(str(abstract)),
+        content_type=strip_markup(str(content_type)),
+        publisher=strip_markup(str(publisher)),
         source="Scopus",
         source_id=source_id,
     )
@@ -1178,20 +1313,29 @@ def fetch_springer(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
             f"Springer Nature skipped: set environment variable {env_name} and enable source 'springer'.",
             0,
         )
-    query = quoted_or_query(config["keywords"] or config["journals"])
-    params = {
-        "api_key": api_key,
-        "q": query,
-        "s": "1",
-        "p": str(min(config["max_candidates_per_source"], 100)),
-    }
-    url = "https://api.springernature.com/meta/v2/json?" + urllib.parse.urlencode(params)
+    queries = [quoted_or_query(config["keywords"] or config["journals"])]
+    watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
+    if watch_rows:
+        queries.extend(journal_discovery_terms(config)[:30])
+    rows = str(min(config["max_candidates_per_source"], 100))
     try:
-        data = json.loads(request_text(url, config))
-        records = data.get("records", [])
+        records: List[Dict[str, Any]] = []
+        attempted = 0
+        for query in [item for item in queries if item]:
+            params = {
+                "api_key": api_key,
+                "q": query,
+                "s": "1",
+                "p": str(watch_rows if attempted else int(rows)),
+            }
+            url = "https://api.springernature.com/meta/v2/json?" + urllib.parse.urlencode(params)
+            data = json.loads(request_text(url, config))
+            records.extend(data.get("records", []))
+            attempted += 1
+            time.sleep(0.05)
         papers = [parse_springer_record(record) for record in records]
         papers = [paper for paper in papers if paper.title and date_in_window(paper.published, start, end)]
-        return papers, SourceStatus("springer", True, "Fetched Springer Nature Meta records.", len(papers))
+        return papers, SourceStatus("springer", True, f"Fetched Springer Nature Meta records from {attempted} query path(s).", len(papers))
     except Exception as exc:  # noqa: BLE001
         return [], SourceStatus("springer", False, f"Springer Nature failed: {exc}", 0)
 
@@ -1204,6 +1348,8 @@ def parse_springer_record(record: Dict[str, Any]) -> Paper:
     abstract = record.get("abstract") or ""
     published = record.get("publicationDate") or record.get("onlineDate") or record.get("printDate") or ""
     authors = parse_authorish(record.get("creators") or record.get("authors"))
+    content_type = record.get("contentType") or record.get("genre") or record.get("type") or ""
+    publisher = record.get("publisher") or "Springer Nature"
     return Paper(
         title=strip_markup(str(title)),
         authors=authors[:8],
@@ -1212,9 +1358,75 @@ def parse_springer_record(record: Dict[str, Any]) -> Paper:
         doi=doi,
         url=str(url),
         abstract=strip_markup(str(abstract)),
+        content_type=strip_markup(str(content_type)),
+        publisher=strip_markup(str(publisher)),
         source="Springer Nature Meta",
         source_id=doi,
     )
+
+
+def fetch_springer_openaccess(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[List[Paper], SourceStatus]:
+    api_key, env_name = env_api_key(
+        config,
+        "springer_openaccess_api_key_env",
+        ["SPRINGER_OPENACCESS_API_KEY", "SPRINGER_NATURE_API_KEY", "SPRINGER_API_KEY"],
+    )
+    if not api_key:
+        return [], SourceStatus(
+            "springer-openaccess",
+            False,
+            f"Springer Nature OpenAccess skipped: set environment variable {env_name} and enable source 'springer-openaccess'.",
+            0,
+        )
+    queries = [quoted_or_query(config["keywords"] or config["journals"])]
+    watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
+    if watch_rows:
+        queries.extend(journal_discovery_terms(config)[:30])
+    rows = str(min(config["max_candidates_per_source"], 100))
+    try:
+        records: List[Dict[str, Any]] = []
+        attempted = 0
+        for query in [item for item in queries if item]:
+            params = {
+                "api_key": api_key,
+                "q": query,
+                "s": "1",
+                "p": str(watch_rows if attempted else int(rows)),
+            }
+            url = "https://api.springernature.com/openaccess/json?" + urllib.parse.urlencode(params)
+            data = json.loads(request_text(url, config))
+            records.extend(data.get("records", []))
+            attempted += 1
+            time.sleep(0.05)
+        papers = [parse_springer_openaccess_record(record) for record in records]
+        papers = [paper for paper in papers if paper.title and date_in_window(paper.published, start, end)]
+        with_full_text = sum(1 for paper in papers if paper.full_text)
+        message = f"Fetched Springer Nature OpenAccess records from {attempted} query path(s)."
+        if with_full_text:
+            message += f" {with_full_text} record(s) included OA full-text content."
+        return papers, SourceStatus("springer-openaccess", True, message, len(papers))
+    except Exception as exc:  # noqa: BLE001
+        return [], SourceStatus("springer-openaccess", False, f"Springer Nature OpenAccess failed: {exc}", 0)
+
+
+def parse_springer_openaccess_record(record: Dict[str, Any]) -> Paper:
+    paper = parse_springer_record(record)
+    paper.source = "Springer Nature OpenAccess"
+    body = first_text_for_keys(
+        record,
+        {
+            "body",
+            "fullText",
+            "fulltext",
+            "articleBody",
+            "content",
+        },
+    )
+    if body:
+        paper.full_text = compact_full_text(normalize_full_text(strip_markup(str(body))), 60000)
+        paper.full_text_source = "Springer Nature OpenAccess API"
+        paper.full_text_status = "Open-access full text retrieved from Springer Nature OpenAccess API."
+    return paper
 
 
 def parse_authorish(value: Any) -> List[str]:
@@ -1327,6 +1539,8 @@ def offline_sample_papers(run_date: dt.date) -> Tuple[List[Paper], List[SourceSt
             published=run_date.isoformat(),
             doi="10.0000/sample-ultrasound-1",
             url="https://doi.org/10.0000/sample-ultrasound-1",
+            content_type="Article",
+            publisher="Sample Publisher",
             abstract=(
                 "This sample record describes a neural reconstruction method for portable ultrasound. "
                 "It reports improved image quality on a multi-center retrospective dataset."
@@ -1354,6 +1568,8 @@ def offline_sample_papers(run_date: dt.date) -> Tuple[List[Paper], List[SourceSt
             published=run_date.isoformat(),
             doi="10.0000/sample-medimg-2",
             url="https://doi.org/10.0000/sample-medimg-2",
+            content_type="Perspective",
+            publisher="Springer Nature",
             abstract=(
                 "This sample record evaluates foundation models across segmentation and classification tasks "
                 "and highlights domain shift as a major limitation."
@@ -1388,6 +1604,9 @@ def fetch_all(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tuple[Lis
         "sciencedirect": fetch_elsevier,
         "springer": fetch_springer,
         "springer-nature": fetch_springer,
+        "springer-openaccess": fetch_springer_openaccess,
+        "springer-oa": fetch_springer_openaccess,
+        "openaccess": fetch_springer_openaccess,
     }
     all_papers: List[Paper] = []
     statuses: List[SourceStatus] = []
@@ -1416,13 +1635,32 @@ def filter_and_rank(papers: List[Paper], config: Dict[str, Any], run_date: dt.da
 
 
 def excluded(paper: Paper, config: Dict[str, Any]) -> bool:
-    haystack = " ".join([paper.title, paper.abstract, paper.journal]).lower()
+    haystack = " ".join([paper.title, paper.abstract, paper.journal, paper.content_type, paper.publisher]).lower()
     return any(term.lower() in haystack for term in config["exclude_keywords"])
 
 
 def journal_matches(journal: str, journals: Iterable[str]) -> bool:
     normalized = journal.lower()
     return any(term.lower() in normalized for term in journals)
+
+
+def normalize_journal_for_match(value: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def priority_journal_matches(journal: str, term: str) -> bool:
+    normalized_journal = normalize_journal_for_match(journal)
+    normalized_term = normalize_journal_for_match(term)
+    if not normalized_journal or not normalized_term:
+        return False
+    if normalized_journal == normalized_term:
+        return True
+    # One-word prestige journals should not match arbitrary titles such as
+    # "International Journal of Science" or "Cell Death & Disease".
+    if normalized_term in {"nature", "science", "cell"}:
+        return False
+    return re.search(rf"\b{re.escape(normalized_term)}\b", normalized_journal) is not None
 
 
 def deduplicate(papers: List[Paper]) -> List[Paper]:
@@ -1450,6 +1688,10 @@ def deduplicate(papers: List[Paper]) -> List[Paper]:
             existing.url = paper.url
         if not existing.journal and paper.journal:
             existing.journal = paper.journal
+        if not existing.content_type and paper.content_type:
+            existing.content_type = paper.content_type
+        if not existing.publisher and paper.publisher:
+            existing.publisher = paper.publisher
         if not existing.published and paper.published:
             existing.published = paper.published
         if len(paper.authors) > len(existing.authors):
@@ -1458,7 +1700,7 @@ def deduplicate(papers: List[Paper]) -> List[Paper]:
 
 
 def paper_analysis_text(paper: Paper) -> str:
-    return " ".join([paper.title, paper.abstract, paper.full_text, paper.journal])
+    return " ".join([paper.title, paper.abstract, paper.full_text, paper.journal, paper.content_type, paper.publisher])
 
 
 def score_paper(paper: Paper, config: Dict[str, Any], run_date: dt.date) -> Tuple[float, List[str]]:
@@ -1478,10 +1720,34 @@ def score_paper(paper: Paper, config: Dict[str, Any], run_date: dt.date) -> Tupl
         score += 1.0 * len(abstract_matches)
         reasons.append("abstract keyword match: " + ", ".join(abstract_matches))
 
-    priority_hits = [journal for journal in config["priority_journals"] if journal.lower() in paper.journal.lower()]
+    priority_hits = [journal for journal in config["priority_journals"] if priority_journal_matches(paper.journal, journal)]
     if priority_hits:
         score += 8.0
         reasons.append("priority journal: " + ", ".join(priority_hits))
+
+    nature_hits = [
+        journal
+        for journal in config.get("nature_portfolio_journals", [])
+        if priority_journal_matches(paper.journal, journal)
+    ]
+    if nature_hits and not priority_hits:
+        score += 6.0
+        reasons.append("Nature Portfolio journal watch: " + ", ".join(nature_hits[:3]))
+
+    publisher_hits = [
+        publisher
+        for publisher in config.get("publisher_watch_terms", [])
+        if publisher.lower() in paper.publisher.lower()
+    ]
+    if publisher_hits:
+        score += 3.0
+        reasons.append("publisher watch: " + ", ".join(publisher_hits[:3]))
+
+    if paper.content_type:
+        content_lower = paper.content_type.lower()
+        if any(term in content_lower for term in ["perspective", "review", "article", "analysis", "brief communication"]):
+            score += 0.5
+            reasons.append("content type: " + paper.content_type)
 
     if config["journals"] and journal_matches(paper.journal, config["journals"]):
         score += 4.0
@@ -1583,8 +1849,8 @@ def markdown_cell(value: str, max_chars: int = 88) -> str:
 
 def format_overview_table(papers: List[Paper]) -> List[str]:
     lines = [
-        "| # | Paper | Venue | Type signal | Evidence | Score |",
-        "|---|-------|-------|-------------|----------|-------|",
+        "| # | Paper | Venue | Content type | Type signal | Evidence | Score |",
+        "|---|-------|-------|--------------|-------------|----------|-------|",
     ]
     for index, paper in enumerate(papers, start=1):
         lines.append(
@@ -1594,6 +1860,7 @@ def format_overview_table(papers: List[Paper]) -> List[str]:
                     str(index),
                     markdown_cell(paper.title, 58),
                     markdown_cell(paper.journal or "not available", 34),
+                    markdown_cell(paper.content_type or "not available", 22),
                     markdown_cell(paper_type_label(paper), 32),
                     markdown_cell(evidence_readiness(paper), 28),
                     f"{paper.score:.2f}",
@@ -1833,6 +2100,8 @@ def format_paper(
         "",
         f"- Authors: {authors or 'not available'}",
         f"- Journal/Venue: {paper.journal or 'not available'}",
+        f"- Publisher: {paper.publisher or 'not available'}",
+        f"- Content type: {paper.content_type or 'not available'}",
         f"- Published: {paper.published or 'not available'}",
         f"- DOI: {paper.doi or 'not available'}",
         f"- URL: {paper.url or doi_link or 'not available'}",

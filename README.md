@@ -26,6 +26,7 @@ Optional API-key sources:
 - Elsevier ScienceDirect Search through `ELSEVIER_API_KEY` when the key is entitled for it
 - Elsevier Article Retrieval through `ELSEVIER_API_KEY`/`ELSEVIER_INSTTOKEN` for selected-paper full text when entitled
 - Springer Nature Meta through `SPRINGER_NATURE_API_KEY`
+- Springer Nature OpenAccess through `SPRINGER_OPENACCESS_API_KEY` or fallback `SPRINGER_NATURE_API_KEY`
 
 ## Quick Start
 
@@ -64,6 +65,7 @@ Edit the local config:
 - `keywords` for topic discovery.
 - `journals` for hard journal filters.
 - `priority_journals` for ranking boosts.
+- `discover_priority_journals`, `nature_portfolio_journals`, and `openalex_publisher_ids` for Nature/Springer Nature journal and publisher watch discovery.
 - `exclude_keywords` for filtering out unwanted themes.
 - `sources` for enabling public or optional publisher sources.
 - `output_dir` for report destination.
@@ -95,6 +97,7 @@ LITERATURE_DIGEST_USER_AGENT="literature-daily-digest/1.0 (mailto:your-email@exa
 ELSEVIER_API_KEY=
 ELSEVIER_INSTTOKEN=
 SPRINGER_NATURE_API_KEY=
+SPRINGER_OPENACCESS_API_KEY=
 ```
 
 Do not commit `.env`. It is intentionally ignored.
@@ -111,6 +114,15 @@ script attempts Elsevier Article Retrieval after ranking selected papers and
 stores extracted text in local report artifacts. If the API key or institutional
 token lacks article entitlement, the report records that status and the paper
 remains abstract-only.
+
+Nature/Springer Nature coverage has two paths. Without an API key, OpenAlex can
+watch Springer Nature by publisher lineage through `openalex_publisher_ids`.
+With `SPRINGER_NATURE_API_KEY`, the `springer` source uses Springer Nature Meta
+and preserves publisher content types such as Article, Perspective, Review
+Article, Analysis, or Brief Communication when available.
+With `SPRINGER_OPENACCESS_API_KEY`, the `springer-openaccess` source can retrieve
+open-access Springer Nature records and uses OA full text when the API response
+contains it.
 
 If a local proxy or VPN changes the public egress IP, keep
 `elsevier_no_proxy: true` in the config. The script will bypass the system
@@ -149,6 +161,7 @@ Each generated report includes:
 - The configured date window and report path.
 - Source status notes for each enabled discovery source.
 - Ranked paper candidates with title, authors, venue, date, DOI, URL, source, and score.
+- Publisher and content-type metadata when available, including Springer Nature section labels.
 - Full-text evidence status and local artifact links when full text is retrieved.
 - Per-paper `图文解读` sections with a grounded Mermaid logic diagram and instructions for replacing it with real paper figures when accessible.
 - Optional diagnostic SVG overviews for ranking score and selected-paper source coverage when enabled.

@@ -1,6 +1,6 @@
 ---
 name: literature-daily-digest
-description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, optional Scopus/Elsevier/Springer API sources via environment variables, selected-paper full-text enrichment through entitled Elsevier Article Retrieval, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, scholarly reviewer-style analysis lenses, per-paper figure-rich interpretation guidance, optional diagnostic SVG overviews, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize and academically interpret newly published papers from abstracts or full text for a researcher.
+description: Generate local Markdown daily literature digests from configured research keywords and journal names, with public-source paper discovery, Nature/Springer Nature publisher and journal watch support, optional Scopus/Elsevier/Springer API sources via environment variables, selected-paper full-text enrichment through entitled Elsevier Article Retrieval, high-impact journal prioritization, bilingual English/Chinese report structure, DOI/link metadata, scholarly reviewer-style analysis lenses, per-paper figure-rich interpretation guidance, optional diagnostic SVG overviews, and clear source/failure notes. Use when Codex needs to create, configure, run, or refine a daily research-paper alert, literature daily report, paper digest, journal watch, Nature Portfolio/Springer Nature monitoring, PubMed/arXiv/Crossref/OpenAlex/Scopus/Elsevier/Springer search, or summarize and academically interpret newly published papers from abstracts or full text for a researcher.
 ---
 
 # Literature Daily Digest
@@ -60,6 +60,15 @@ Optional API-key sources:
 - Elsevier ScienceDirect with `ELSEVIER_API_KEY` when the key is entitled.
 - Elsevier Article Retrieval with `ELSEVIER_API_KEY` and optional `ELSEVIER_INSTTOKEN` for selected-paper full text when entitled.
 - Springer Nature Meta with `SPRINGER_NATURE_API_KEY`.
+- Springer Nature OpenAccess with `SPRINGER_OPENACCESS_API_KEY` or fallback `SPRINGER_NATURE_API_KEY`.
+
+Nature/Springer Nature coverage depends on discovery, not only ranking:
+
+- `priority_journals` raises scores, but `discover_priority_journals: true` also uses those journal names as watch terms.
+- `nature_portfolio_journals` adds explicit Nature Portfolio journal watch terms.
+- `openalex_publisher_ids` enables no-key OpenAlex publisher-lineage discovery; use `https://openalex.org/P4310319965` for Springer Nature.
+- Springer Nature Meta, when enabled with `SPRINGER_NATURE_API_KEY`, can expose publisher `contentType` labels such as Article, Perspective, Review Article, Analysis, or Brief Communication.
+- Springer Nature OpenAccess, when enabled as `springer-openaccess`, can provide open-access records and full text when available in the response.
 
 Elsevier entitlements are source-specific. If Scopus Search works but abstracts
 are missing, check Source Status: the skill should treat HTTP 401/403 from
@@ -90,6 +99,7 @@ Treat the script score as an explainable first pass, not as a scientific judgmen
 
 - Match more configured keywords in the title or abstract.
 - Appear in `priority_journals`.
+- Match `nature_portfolio_journals` or `publisher_watch_terms` such as Springer Nature.
 - Were published inside the configured date window.
 - Include a DOI, source URL, and usable abstract.
 - Are directly connected to the user's stated research direction.
@@ -106,10 +116,11 @@ When creating a new user's config, copy `scripts/sample_config.yaml` to an ignor
 - `keywords` for topic discovery.
 - `journals` for hard journal filters.
 - `priority_journals` for ranking boosts.
+- `discover_priority_journals`, `nature_portfolio_journals`, and `openalex_publisher_ids` for Nature/Springer Nature coverage.
 - `exclude_keywords` for out-of-scope themes.
 - `sources` for enabling public and optional publisher API sources.
 - `output_dir` for the report destination.
-- `.env` for `ELSEVIER_API_KEY`, optional `ELSEVIER_INSTTOKEN`, `SPRINGER_NATURE_API_KEY`, and `LITERATURE_DIGEST_USER_AGENT`.
+- `.env` for `ELSEVIER_API_KEY`, optional `ELSEVIER_INSTTOKEN`, `SPRINGER_NATURE_API_KEY`, `SPRINGER_OPENACCESS_API_KEY`, and `LITERATURE_DIGEST_USER_AGENT`.
 
 ## Daily Automation
 
