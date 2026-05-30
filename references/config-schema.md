@@ -98,6 +98,9 @@ At least one of `keywords` or `journals` must be non-empty.
 `max_candidates_per_source`
 : Upper bound fetched from each source before filtering and deduplication. Default: `max(max_papers * 4, 20)`.
 
+`springer_page_size`
+: Maximum records requested per Springer Nature API request. Default: `20`. Keep this at `20` or lower; some Springer Meta/OpenAccess endpoints return HTTP 403 when `p` is higher even with a valid key and `springer_no_proxy: true`. The script paginates internally when `max_candidates_per_source` asks for more records.
+
 `include_abstracts`
 : Boolean. Include abstracts in the Markdown draft when available. Default: `true`.
 
@@ -105,7 +108,7 @@ At least one of `keywords` or `journals` must be non-empty.
 : Boolean. After candidate ranking, try to retrieve full text for selected papers and store it as local analysis artifacts. Default: `true`. The report links to local artifacts instead of printing long copyrighted text.
 
 `full_text_sources`
-: List of full-text retrievers to use after ranking. Currently implemented: `elsevier` / `sciencedirect` through Elsevier Article Retrieval. Default: `elsevier`.
+: List of full-text retrievers to use after ranking. Implemented values: `elsevier` / `sciencedirect` through Elsevier Article Retrieval, and `springer-openaccess` / `springer-oa` / `openaccess` through Springer Nature OpenAccess JATS by DOI. Default: `elsevier`.
 
 `full_text_dirname`
 : Directory suffix for local full-text artifacts under `output_dir`, combined with the run date as `literature-digest-YYYY-MM-DD-<full_text_dirname>`. Default: `full-text`.
@@ -154,6 +157,19 @@ Use `--env-file` when secrets live somewhere other than the auto-loaded `.env` n
 python scripts/literature_digest.py --config scripts/config.local.yaml --env-file .env
 ```
 
+## Local Configuration UI
+
+The repository includes a zero-dependency local UI for editing the same fields:
+
+```bash
+python scripts/config_ui.py
+```
+
+Open `http://127.0.0.1:8765/`. The UI stores research settings in an ignored
+YAML config, stores API/contact values in an ignored `.env`, shows warnings when
+API-backed sources are enabled without local keys, and can run an offline sample
+check after saving.
+
 ## Suggested Priority Journal Pattern
 
 Keep `priority_journals` broad enough for discovery but specific enough to reflect taste:
@@ -186,11 +202,11 @@ Elsevier and Springer Nature should be treated as optional enhanced sources rath
 
 Scopus Search access does not guarantee abstract payload access. With a basic Scopus Search key, `STANDARD` search records may omit `dc:description`; `COMPLETE` Scopus Search, Scopus Abstract Retrieval `META_ABS`, and ScienceDirect Search can return HTTP 401/403 unless Elsevier has enabled the relevant entitlement or the request includes a valid institutional token. The script keeps Scopus Search usable, then attempts Abstract Retrieval enrichment only when configured and records authorization failures in Source Status.
 
-Full-text enrichment is separate from search. After the script ranks selected papers, it can call Elsevier Article Retrieval by DOI, PII, EID, Scopus ID, or PubMed ID and store extracted body text under the report output directory. Elsevier may return only abstract/metadata or HTTP 401/403 when the key or institutional token lacks article entitlements; the report keeps those notes so final summaries can distinguish full-text evidence from abstract-only evidence.
+Full-text enrichment is separate from search. After the script ranks selected papers, it can call Elsevier Article Retrieval by DOI, PII, EID, Scopus ID, or PubMed ID, and Springer Nature OpenAccess JATS by DOI, then store extracted body text under the report output directory. Elsevier may return only abstract/metadata or HTTP 401/403 when the key or institutional token lacks article entitlements; Springer OpenAccess JATS may return no record for non-OA or unavailable XML. The report keeps those notes so final summaries can distinguish full-text evidence from abstract-only evidence.
 
 When a local proxy or VPN exposes a non-institutional egress IP, keep `elsevier_no_proxy: true` so only Elsevier API calls bypass the proxy. This is useful when the institution recognizes direct campus or official VPN IPs. It does not change PubMed, arXiv, Crossref, OpenAlex, or Springer requests.
 
-For Springer Nature Meta/OpenAccess, keep `springer_no_proxy: true` when entitlement depends on direct campus or official VPN egress. Both `springer` and `springer-openaccess` use `api.springernature.com`, so this bypass applies to both.
+For Springer Nature Meta/OpenAccess, keep `springer_no_proxy: true` when entitlement depends on direct campus or official VPN egress. Both `springer` and `springer-openaccess` use `api.springernature.com`, so this bypass applies to both. Also keep `springer_page_size` at `20` or lower; current Springer endpoints can reject larger `p` page sizes with HTTP 403.
 
 Scopus Search date filtering is less precise than PubMed/Crossref/OpenAlex in this script: the API request is limited by publication year and sorted by original load date, then the report keeps the returned candidates. Scopus `coverDate` can point to a future issue date.
 
@@ -204,7 +220,7 @@ $env:SPRINGER_NATURE_API_KEY = "your-springer-meta-key"
 $env:SPRINGER_OPENACCESS_API_KEY = "your-springer-openaccess-key"
 ```
 
-Then add `scopus`, `elsevier`, `springer`, and/or `springer-openaccess` under `sources`.
+Then add `scopus`, `elsevier`, `springer`, and/or `springer-openaccess` under `sources`. Add `springer-openaccess` under `full_text_sources` when you want selected OA papers to use the JATS full-text endpoint.
 
 ## GitHub-Safe Layout
 

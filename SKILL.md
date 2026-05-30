@@ -10,7 +10,16 @@ description: Generate local Markdown daily literature digests from configured re
 1. Inspect the user's config file. If none is provided, start from `scripts/sample_config.yaml`; use `scripts/config.local.yaml` only when the user wants their local private watch profile.
 2. Read `references/config-schema.md` when editing config fields or explaining options.
 3. Read `references/academic-review-lens.md` before polishing selected papers into the final digest, especially when the user asks for more academic, peer-review-like interpretation.
-4. Run the discovery script:
+4. If the user wants an easier setup surface, launch the local configuration UI:
+
+```bash
+python scripts/config_ui.py
+```
+
+Open `http://127.0.0.1:8765/`. The UI saves public-safe settings to the ignored
+`scripts/config.local.yaml` and API/contact values to the ignored `.env`.
+
+5. Run the discovery script:
 
 ```bash
 python scripts/literature_digest.py --config scripts/sample_config.yaml
@@ -19,10 +28,10 @@ python scripts/literature_digest.py --config scripts/sample_config.yaml
 Use `--date YYYY-MM-DD`, `--days-back N`, `--max-papers N`, or `--output-dir DIR` when the user asks for a specific run window or destination.
 Use `--env-file PATH` only when local secrets live outside the auto-loaded `.env` near the config or current directory.
 
-5. Open the generated Markdown report and read any linked local full-text artifacts before writing full-paper analysis. Treat entries without a full-text artifact as abstract-only.
-6. Refine the paper notes into a final bilingual digest using the scholarly analysis scaffold and the strongest available evidence level.
-7. For each selected paper, turn the `图文解读` draft into a real per-paper visual explanation when evidence allows: prefer an accessible paper figure, graphical abstract, method diagram, or key result figure; otherwise keep or refine the grounded Mermaid logic diagram.
-8. Preserve source URLs, DOI links, source names, full-text artifact paths/status, per-paper figure links/attribution notes, optional SVG asset links, and failure warnings from the script output.
+6. Open the generated Markdown report and read any linked local full-text artifacts before writing full-paper analysis. Treat entries without a full-text artifact as abstract-only.
+7. Refine the paper notes into a final bilingual digest using the scholarly analysis scaffold and the strongest available evidence level.
+8. For each selected paper, turn the `图文解读` draft into a real per-paper visual explanation when evidence allows: prefer an accessible paper figure, graphical abstract, method diagram, or key result figure; otherwise keep or refine the grounded Mermaid logic diagram.
+9. Preserve source URLs, DOI links, source names, full-text artifact paths/status, per-paper figure links/attribution notes, optional SVG asset links, and failure warnings from the script output.
 
 ## Report Standard
 
@@ -68,7 +77,7 @@ Nature/Springer Nature coverage depends on discovery, not only ranking:
 - `nature_portfolio_journals` adds explicit Nature Portfolio journal watch terms.
 - `openalex_publisher_ids` enables no-key OpenAlex publisher-lineage discovery; use `https://openalex.org/P4310319965` for Springer Nature.
 - Springer Nature Meta, when enabled with `SPRINGER_NATURE_API_KEY`, can expose publisher `contentType` labels such as Article, Perspective, Review Article, Analysis, or Brief Communication.
-- Springer Nature OpenAccess, when enabled as `springer-openaccess`, can provide open-access records and full text when available in the response.
+- Springer Nature OpenAccess, when enabled as `springer-openaccess`, can provide open-access records; add `springer-openaccess` to `full_text_sources` to retrieve selected-paper OA JATS full text by DOI when available.
 
 Elsevier entitlements are source-specific. If Scopus Search works but abstracts
 are missing, check Source Status: the skill should treat HTTP 401/403 from
@@ -81,11 +90,14 @@ and leaves the other sources unchanged.
 Keep `springer_no_proxy: true` for the same reason when using Springer Nature
 Meta or OpenAccess; it bypasses the system HTTP(S) proxy for
 `api.springernature.com`.
+Keep `springer_page_size` at `20` or lower; Springer Meta/OpenAccess can return
+HTTP 403 for larger `p` page sizes even when the key and no-proxy path are valid.
+The script should paginate internally when more candidates are requested.
 
 Keep API keys, contact emails, and user-specific research profiles out of committed files. Use local `.env` for keys and `LITERATURE_DIGEST_USER_AGENT`, and use `scripts/config.local.yaml` or another ignored config for private topics.
 
 If a source fails because of network, rate limit, or upstream API changes, keep the failure note in the report instead of silently dropping it.
-Full-text enrichment runs after ranking, so it only attempts the selected papers. Elsevier Article Retrieval may return only abstract/metadata or HTTP 401/403 when the key is not entitled; preserve that status in the report.
+Full-text enrichment runs after ranking, so it only attempts the selected papers. Elsevier Article Retrieval may return only abstract/metadata or HTTP 401/403 when the key is not entitled; Springer OpenAccess JATS may return no XML body for non-OA or unavailable records. Preserve that status in the report.
 
 For a network-free smoke test, run:
 
@@ -124,6 +136,10 @@ When creating a new user's config, copy `scripts/sample_config.yaml` to an ignor
 - `sources` for enabling public and optional publisher API sources.
 - `output_dir` for the report destination.
 - `.env` for `ELSEVIER_API_KEY`, optional `ELSEVIER_INSTTOKEN`, `SPRINGER_NATURE_API_KEY`, `SPRINGER_OPENACCESS_API_KEY`, and `LITERATURE_DIGEST_USER_AGENT`.
+
+For users who prefer a form-based setup, run `python scripts/config_ui.py`; it
+edits the same ignored YAML and `.env` files and can run an offline sample check
+from the browser.
 
 ## Daily Automation
 

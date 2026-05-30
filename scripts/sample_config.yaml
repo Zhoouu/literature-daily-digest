@@ -88,6 +88,7 @@ include_abstracts: true
 include_full_text: true
 full_text_sources:
   - elsevier
+  # - springer-openaccess
 full_text_dirname: full-text
 full_text_max_chars: 60000
 full_text_min_chars: 1200
@@ -103,6 +104,9 @@ include_overview_visuals: false
 visuals_dirname: assets
 timeout_seconds: 20
 max_candidates_per_source: 40
+# Springer Nature returns HTTP 403 for page sizes above 20 on some endpoints.
+# The script paginates when max_candidates_per_source asks for more records.
+springer_page_size: 20
 
 # Public default. Put a contact email in .env via LITERATURE_DIGEST_USER_AGENT.
 user_agent: "literature-daily-digest/1.0"

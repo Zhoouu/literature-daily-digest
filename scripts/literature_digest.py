@@ -240,6 +240,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized.setdefault("springer_api_key_env", "SPRINGER_NATURE_API_KEY")
     normalized.setdefault("springer_openaccess_api_key_env", "SPRINGER_OPENACCESS_API_KEY")
     normalized.setdefault("springer_no_proxy", True)
+    normalized.setdefault("springer_page_size", 20)
 
     if args.days_back is not None:
         normalized["days_back"] = args.days_back
@@ -293,6 +294,7 @@ def normalize_config(config: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     normalized["max_papers"] = max(1, int(normalized.get("max_papers", 10)))
     normalized["timeout_seconds"] = max(5, int(normalized.get("timeout_seconds", 20)))
     normalized["journal_watch_per_term"] = max(0, int(normalized.get("journal_watch_per_term") or 8))
+    normalized["springer_page_size"] = min(20, max(1, int(normalized.get("springer_page_size") or 20)))
     default_candidates = max(normalized["max_papers"] * 4, 20)
     normalized["max_candidates_per_source"] = max(
         1,
@@ -474,6 +476,73 @@ def springer_date_query(query: str, start: dt.date, end: dt.date) -> str:
     if " OR " in query and not (query.startswith("(") and query.endswith(")")):
         query = f"({query})"
     return f"{query} datefrom:{start.isoformat()} dateto:{end.isoformat()}"
+
+
+def springer_page_size(config: Dict[str, Any]) -> int:
+    return min(20, max(1, int(config.get("springer_page_size") or 20)))
+
+
+def fetch_springer_pages(
+    endpoint: str,
+    api_key: str,
+    query: str,
+    target_rows: int,
+    config: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], int]:
+    records: List[Dict[str, Any]] = []
+    requests = 0
+    remaining = max(0, int(target_rows))
+    start_index = 1
+    page_size = springer_page_size(config)
+    while remaining > 0:
+        page_rows = min(page_size, remaining)
+        params = {
+            "api_key": api_key,
+            "q": query,
+            "s": str(start_index),
+            "p": str(page_rows),
+        }
+        url = "https://api.springernature.com/" + endpoint + "?" + urllib.parse.urlencode(params)
+        data = json.loads(request_text(url, config))
+        page_records = data.get("records", [])
+        records.extend(page_records)
+        requests += 1
+        if len(page_records) < page_rows:
+            break
+        remaining -= page_rows
+        start_index += page_rows
+        time.sleep(0.05)
+    return records, requests
+
+
+def springer_records_for_queries(
+    endpoint: str,
+    api_key: str,
+    queries: List[str],
+    config: Dict[str, Any],
+    start: dt.date,
+    end: dt.date,
+    primary_rows: int,
+    watch_rows: int,
+) -> Tuple[List[Dict[str, Any]], int, int, List[str]]:
+    records: List[Dict[str, Any]] = []
+    attempted = 0
+    requests = 0
+    failures: List[str] = []
+    for index, raw_query in enumerate(item for item in queries if item):
+        query = springer_date_query(raw_query, start, end)
+        target_rows = primary_rows if index == 0 else watch_rows
+        if target_rows <= 0:
+            continue
+        try:
+            page_records, page_requests = fetch_springer_pages(endpoint, api_key, query, target_rows, config)
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{raw_query[:80]}: {exc}")
+            continue
+        records.extend(page_records)
+        attempted += 1
+        requests += page_requests
+    return records, attempted, requests, failures
 
 
 def scopus_query(config: Dict[str, Any]) -> str:
@@ -927,14 +996,40 @@ def enrich_full_texts(
                 if not paper.full_text and not paper.full_text_status:
                     paper.full_text_status = skip_note
             notes.append(skip_note)
-    elif full_text_sources:
-        skip_note = "No implemented full-text retriever matched configured full_text_sources."
+
+    if "springer-openaccess" in full_text_sources or "springer-oa" in full_text_sources or "openaccess" in full_text_sources:
+        api_key, env_name = env_api_key(
+            config,
+            "springer_openaccess_api_key_env",
+            ["SPRINGER_OPENACCESS_API_KEY", "SPRINGER_NATURE_API_KEY", "SPRINGER_API_KEY"],
+        )
+        if api_key:
+            springer_added, springer_note = enrich_springer_openaccess_full_texts(
+                target_papers,
+                config,
+                api_key,
+                run_date,
+                output_dir,
+            )
+            added += springer_added
+            if springer_note:
+                notes.append(springer_note)
+        else:
+            skip_note = f"Springer OpenAccess JATS full text skipped: set environment variable {env_name}."
+            for paper in target_papers:
+                if not paper.full_text and not paper.full_text_status:
+                    paper.full_text_status = skip_note
+            notes.append(skip_note)
+
+    implemented_sources = {"elsevier", "sciencedirect", "springer-openaccess", "springer-oa", "openaccess"}
+    if not full_text_sources:
+        skip_note = "No full_text_sources configured."
         for paper in target_papers:
             if not paper.full_text and not paper.full_text_status:
                 paper.full_text_status = skip_note
         notes.append(skip_note)
-    else:
-        skip_note = "No full_text_sources configured."
+    elif not any(source in implemented_sources for source in full_text_sources):
+        skip_note = "No implemented full-text retriever matched configured full_text_sources."
         for paper in target_papers:
             if not paper.full_text and not paper.full_text_status:
                 paper.full_text_status = skip_note
@@ -945,6 +1040,100 @@ def enrich_full_texts(
     if notes:
         message += " " + " ".join(notes)
     return SourceStatus("full-text", True, message, total)
+
+
+def enrich_springer_openaccess_full_texts(
+    papers: List[Paper],
+    config: Dict[str, Any],
+    api_key: str,
+    run_date: dt.date,
+    output_dir: Path,
+) -> Tuple[int, str]:
+    added = 0
+    missing_doi = 0
+    not_found = 0
+    thin_payloads = 0
+    transient_failures = 0
+    max_chars = int(config.get("full_text_max_chars") or 60000)
+    min_chars = int(config.get("full_text_min_chars") or 1200)
+
+    for index, paper in enumerate(papers, start=1):
+        if paper.full_text:
+            continue
+        if not is_springer_openaccess_candidate(paper):
+            continue
+        if not paper.doi:
+            missing_doi += 1
+            continue
+        params = {
+            "api_key": api_key,
+            "q": "doi:" + paper.doi,
+            "s": "1",
+            "p": "1",
+        }
+        url = "https://api.springernature.com/openaccess/jats?" + urllib.parse.urlencode(params)
+        try:
+            payload = request_text(url, config)
+        except Exception as exc:  # noqa: BLE001
+            status = http_status(exc)
+            if status in {401, 403, 404}:
+                not_found += 1
+                if not paper.full_text_status:
+                    paper.full_text_status = (
+                        f"Springer OpenAccess JATS did not provide full text for DOI; API returned HTTP {status}."
+                    )
+                continue
+            transient_failures += 1
+            if not paper.full_text_status:
+                paper.full_text_status = f"Springer OpenAccess JATS full text failed for DOI: {exc}"
+            continue
+
+        full_text = article_text_from_xml(payload)
+        if len(full_text) < min_chars:
+            thin_payloads += 1
+            if not paper.full_text_status:
+                paper.full_text_status = (
+                    f"Springer OpenAccess JATS returned only {len(full_text)} characters for DOI; "
+                    "treat as abstract/metadata-level evidence."
+                )
+            continue
+        paper.full_text = compact_full_text(full_text, max_chars)
+        paper.full_text_source = "Springer Nature OpenAccess JATS API (DOI)"
+        paper.full_text_status = "Full text retrieved from Springer Nature OpenAccess JATS using DOI."
+        write_full_text_artifact(paper, index, run_date, output_dir, config)
+        added += 1
+        time.sleep(0.1)
+
+    notes = []
+    if added:
+        notes.append(f"Retrieved {added} Springer OpenAccess JATS full text(s).")
+    if missing_doi:
+        notes.append(f"{missing_doi} paper(s) lacked DOI for Springer OpenAccess JATS.")
+    if not_found:
+        notes.append(f"{not_found} DOI(s) were not found in Springer OpenAccess JATS.")
+    if thin_payloads:
+        notes.append(f"{thin_payloads} Springer OpenAccess JATS response(s) looked like abstract/metadata rather than full text.")
+    if transient_failures:
+        notes.append(f"{transient_failures} Springer OpenAccess JATS request(s) failed transiently.")
+    return added, " ".join(notes)
+
+
+def is_springer_openaccess_candidate(paper: Paper) -> bool:
+    haystack = " ".join(
+        [
+            paper.source or "",
+            paper.publisher or "",
+            paper.journal or "",
+            paper.url or "",
+        ]
+    ).lower()
+    markers = [
+        "springer",
+        "nature",
+        "biomed central",
+        "bmc",
+    ]
+    return any(marker in haystack for marker in markers)
 
 
 def enrich_elsevier_full_texts(
@@ -1099,10 +1288,14 @@ def article_text_from_xml(payload: str) -> str:
     parts = []
     useful_names = {
         "title",
+        "article-title",
         "section-title",
+        "sec-title",
         "para",
+        "p",
         "simple-para",
         "abstract-sec",
+        "abstract",
         "description",
         "caption",
     }
@@ -1335,25 +1528,26 @@ def fetch_springer(config: Dict[str, Any], start: dt.date, end: dt.date) -> Tupl
     watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
     if watch_rows:
         queries.extend(journal_discovery_terms(config)[:30])
-    rows = str(min(config["max_candidates_per_source"], 100))
+    rows = min(config["max_candidates_per_source"], 100)
     try:
-        records: List[Dict[str, Any]] = []
-        attempted = 0
-        for query in [springer_date_query(item, start, end) for item in queries if item]:
-            params = {
-                "api_key": api_key,
-                "q": query,
-                "s": "1",
-                "p": str(watch_rows if attempted else int(rows)),
-            }
-            url = "https://api.springernature.com/meta/v2/json?" + urllib.parse.urlencode(params)
-            data = json.loads(request_text(url, config))
-            records.extend(data.get("records", []))
-            attempted += 1
-            time.sleep(0.05)
+        records, attempted, requests, failures = springer_records_for_queries(
+            "meta/v2/json",
+            api_key,
+            queries,
+            config,
+            start,
+            end,
+            rows,
+            watch_rows,
+        )
+        if not attempted and failures:
+            return [], SourceStatus("springer", False, f"Springer Nature failed for all query paths: {failures[0]}", 0)
         papers = [parse_springer_record(record) for record in records]
         papers = [paper for paper in papers if paper.title and date_in_window(paper.published, start, end)]
-        return papers, SourceStatus("springer", True, f"Fetched Springer Nature Meta records from {attempted} query path(s).", len(papers))
+        message = f"Fetched Springer Nature Meta records from {attempted} query path(s), using {requests} request(s)."
+        if failures:
+            message += f" {len(failures)} query path(s) failed without stopping the source."
+        return papers, SourceStatus("springer", True, message, len(papers))
     except Exception as exc:  # noqa: BLE001
         return [], SourceStatus("springer", False, f"Springer Nature failed: {exc}", 0)
 
@@ -1400,28 +1594,33 @@ def fetch_springer_openaccess(config: Dict[str, Any], start: dt.date, end: dt.da
     watch_rows = min(max(int(config.get("journal_watch_per_term") or 0), 0), 50)
     if watch_rows:
         queries.extend(journal_discovery_terms(config)[:30])
-    rows = str(min(config["max_candidates_per_source"], 100))
+    rows = min(config["max_candidates_per_source"], 100)
     try:
-        records: List[Dict[str, Any]] = []
-        attempted = 0
-        for query in [springer_date_query(item, start, end) for item in queries if item]:
-            params = {
-                "api_key": api_key,
-                "q": query,
-                "s": "1",
-                "p": str(watch_rows if attempted else int(rows)),
-            }
-            url = "https://api.springernature.com/openaccess/json?" + urllib.parse.urlencode(params)
-            data = json.loads(request_text(url, config))
-            records.extend(data.get("records", []))
-            attempted += 1
-            time.sleep(0.05)
+        records, attempted, requests, failures = springer_records_for_queries(
+            "openaccess/json",
+            api_key,
+            queries,
+            config,
+            start,
+            end,
+            rows,
+            watch_rows,
+        )
+        if not attempted and failures:
+            return [], SourceStatus(
+                "springer-openaccess",
+                False,
+                f"Springer Nature OpenAccess failed for all query paths: {failures[0]}",
+                0,
+            )
         papers = [parse_springer_openaccess_record(record) for record in records]
         papers = [paper for paper in papers if paper.title and date_in_window(paper.published, start, end)]
         with_full_text = sum(1 for paper in papers if paper.full_text)
-        message = f"Fetched Springer Nature OpenAccess records from {attempted} query path(s)."
+        message = f"Fetched Springer Nature OpenAccess records from {attempted} query path(s), using {requests} request(s)."
         if with_full_text:
             message += f" {with_full_text} record(s) included OA full-text content."
+        if failures:
+            message += f" {len(failures)} query path(s) failed without stopping the source."
         return papers, SourceStatus("springer-openaccess", True, message, len(papers))
     except Exception as exc:  # noqa: BLE001
         return [], SourceStatus("springer-openaccess", False, f"Springer Nature OpenAccess failed: {exc}", 0)

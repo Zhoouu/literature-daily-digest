@@ -42,8 +42,41 @@ Generate a report without network calls:
 python scripts/literature_digest.py --config scripts/sample_config.yaml --offline-sample
 ```
 
+Launch the local configuration UI:
+
+```bash
+python scripts/config_ui.py
+```
+
+Then open `http://127.0.0.1:8765/`. The UI writes a private
+`scripts/config.local.yaml` and local `.env`, both of which are ignored by Git.
+
 The script writes Markdown reports to `reports/` by default. Generated reports
 are ignored by Git so local daily outputs do not get committed accidentally.
+
+## Configuration UI
+
+For local setup or first-time users, run:
+
+```bash
+python scripts/config_ui.py --open
+```
+
+The UI covers the main script settings:
+
+- Research keywords, hard journal filters, priority journals, Nature Portfolio watch lists, publisher watch terms, and exclusion terms.
+- Public and optional API-key source toggles for PubMed, arXiv, Crossref, OpenAlex, Scopus, Elsevier, Springer Nature Meta, and Springer Nature OpenAccess.
+- Report options such as date window, output directory, maximum papers, abstracts, full-text enrichment, scholarly scaffold, and visual sections.
+- Local `.env` values for `LITERATURE_DIGEST_USER_AGENT`, `ELSEVIER_API_KEY`, `ELSEVIER_INSTTOKEN`, `SPRINGER_NATURE_API_KEY`, and `SPRINGER_OPENACCESS_API_KEY`.
+- Run commands plus an offline-sample smoke test button.
+
+By default it reads `scripts/config.local.yaml` if present, falls back to
+`scripts/sample_config.yaml`, and saves to the ignored local config path. To use
+a different local profile:
+
+```bash
+python scripts/config_ui.py --config scripts/config.my-topic.yaml --env-file .env.my-topic --port 8766
+```
 
 ## Private Configuration
 
@@ -110,10 +143,12 @@ Scopus Abstract Retrieval access from Elsevier or add an institutional token in
 `ELSEVIER_INSTTOKEN` when Elsevier has issued one.
 
 Full-text enrichment is separate from search. When `include_full_text: true`, the
-script attempts Elsevier Article Retrieval after ranking selected papers and
-stores extracted text in local report artifacts. If the API key or institutional
-token lacks article entitlement, the report records that status and the paper
-remains abstract-only.
+script attempts configured full-text retrievers after ranking selected papers and
+stores extracted text in local report artifacts. Elsevier Article Retrieval uses
+article identifiers when entitled. Springer Nature OpenAccess JATS uses selected
+paper DOIs when `springer-openaccess` is listed in `full_text_sources`. If an API
+key or entitlement cannot provide full text, the report records that status and
+the paper remains abstract-only.
 
 Nature/Springer Nature coverage has two paths. Without an API key, OpenAlex can
 watch Springer Nature by publisher lineage through `openalex_publisher_ids`.
@@ -121,8 +156,8 @@ With `SPRINGER_NATURE_API_KEY`, the `springer` source uses Springer Nature Meta
 and preserves publisher content types such as Article, Perspective, Review
 Article, Analysis, or Brief Communication when available.
 With `SPRINGER_OPENACCESS_API_KEY`, the `springer-openaccess` source can retrieve
-open-access Springer Nature records and uses OA full text when the API response
-contains it.
+open-access Springer Nature records. Add `springer-openaccess` to
+`full_text_sources` to retrieve available OA JATS full text for selected papers.
 
 If a local proxy or VPN changes the public egress IP, keep
 `elsevier_no_proxy: true` in the config. The script will bypass the system
@@ -132,6 +167,9 @@ normal proxy behavior.
 For Springer Nature keys tied to a campus or official VPN IP, keep
 `springer_no_proxy: true`. The script will bypass the system HTTP(S) proxy for
 `api.springernature.com`, covering both `springer` and `springer-openaccess`.
+Keep `springer_page_size` at `20` or lower; Springer endpoints can return HTTP
+403 for larger page sizes such as `p=30`, even when the key and no-proxy path are
+valid. The script paginates internally when you request more candidates.
 
 ## CLI Options
 
@@ -198,7 +236,9 @@ Commit public, reusable files:
 - `references/config-schema.md`
 - `references/academic-review-lens.md`
 - `scripts/literature_digest.py`
+- `scripts/config_ui.py`
 - `scripts/sample_config.yaml`
+- `ui/configurator/`
 - `.env.example`
 - `.gitignore`
 - `README.md`

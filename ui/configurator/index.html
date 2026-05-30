@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Literature Daily Digest Config</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Local skill setup</p>
+          <h1>Literature Daily Digest</h1>
+        </div>
+        <div class="topbar-actions">
+          <button class="button secondary" id="loadSampleButton" type="button">Load Sample</button>
+          <button class="button primary" id="saveButton" type="button">Save</button>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="Configuration sections">
+        <button class="tab active" data-tab="profile" type="button">Profile</button>
+        <button class="tab" data-tab="sources" type="button">Sources</button>
+        <button class="tab" data-tab="report" type="button">Report</button>
+        <button class="tab" data-tab="api" type="button">API</button>
+        <button class="tab" data-tab="run" type="button">Run</button>
+      </nav>
+
+      <main>
+        <section class="tab-panel active" id="profilePanel">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Research Profile</h2>
+              <span class="path-badge" id="loadedFromBadge">Loading</span>
+            </div>
+            <div class="form-grid">
+              <label class="field wide">
+                <span>Keywords</span>
+                <textarea id="keywords" rows="6" spellcheck="false"></textarea>
+              </label>
+              <label class="field wide">
+                <span>Hard Journal Filter</span>
+                <textarea id="journals" rows="4" spellcheck="false"></textarea>
+              </label>
+              <label class="field wide">
+                <span>Priority Journals</span>
+                <textarea id="priority_journals" rows="8" spellcheck="false"></textarea>
+              </label>
+              <label class="field wide">
+                <span>Nature Portfolio Journals</span>
+                <textarea id="nature_portfolio_journals" rows="8" spellcheck="false"></textarea>
+              </label>
+              <label class="field">
+                <span>Publisher Watch Terms</span>
+                <textarea id="publisher_watch_terms" rows="5" spellcheck="false"></textarea>
+              </label>
+              <label class="field">
+                <span>OpenAlex Publisher IDs</span>
+                <textarea id="openalex_publisher_ids" rows="5" spellcheck="false"></textarea>
+              </label>
+              <label class="field wide">
+                <span>Exclude Keywords</span>
+                <textarea id="exclude_keywords" rows="4" spellcheck="false"></textarea>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="sourcesPanel">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Discovery Sources</h2>
+              <span class="path-badge" id="sourceCountBadge">0 enabled</span>
+            </div>
+            <div class="source-grid" id="sourceGrid"></div>
+            <div class="form-grid compact">
+              <label class="field">
+                <span>Days Back</span>
+                <input id="days_back" min="1" type="number" />
+              </label>
+              <label class="field">
+                <span>Max Papers</span>
+                <input id="max_papers" min="1" type="number" />
+              </label>
+              <label class="field">
+                <span>Max Candidates Per Source</span>
+                <input id="max_candidates_per_source" min="1" type="number" />
+              </label>
+              <label class="field">
+                <span>Springer Page Size</span>
+                <input id="springer_page_size" max="20" min="1" type="number" />
+              </label>
+              <label class="field">
+                <span>Timeout Seconds</span>
+                <input id="timeout_seconds" min="5" type="number" />
+              </label>
+              <label class="field">
+                <span>Journal Watch Per Term</span>
+                <input id="journal_watch_per_term" min="0" type="number" />
+              </label>
+              <label class="toggle-field">
+                <input id="discover_priority_journals" type="checkbox" />
+                <span>Discover Priority Journals</span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="reportPanel">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Report Output</h2>
+              <span class="path-badge" id="configPathBadge"></span>
+            </div>
+            <div class="form-grid compact">
+              <label class="field wide">
+                <span>Output Directory</span>
+                <input id="output_dir" spellcheck="false" type="text" />
+              </label>
+              <label class="toggle-field">
+                <input id="include_abstracts" type="checkbox" />
+                <span>Include Abstracts</span>
+              </label>
+              <label class="toggle-field">
+                <input id="include_scholarly_scaffold" type="checkbox" />
+                <span>Scholarly Scaffold</span>
+              </label>
+              <label class="toggle-field">
+                <input id="include_visuals" type="checkbox" />
+                <span>Visual Material</span>
+              </label>
+              <label class="toggle-field">
+                <input id="include_per_paper_visuals" type="checkbox" />
+                <span>Per-Paper Visuals</span>
+              </label>
+              <label class="toggle-field">
+                <input id="include_overview_visuals" type="checkbox" />
+                <span>Overview Charts</span>
+              </label>
+              <label class="toggle-field">
+                <input id="include_full_text" type="checkbox" />
+                <span>Full-Text Enrichment</span>
+              </label>
+              <fieldset class="field wide fieldset">
+                <legend>Full-Text Sources</legend>
+                <div class="checkbox-row" id="fullTextSourceGrid"></div>
+              </fieldset>
+              <label class="field">
+                <span>Full-Text Directory</span>
+                <input id="full_text_dirname" spellcheck="false" type="text" />
+              </label>
+              <label class="field">
+                <span>Full-Text Max Chars</span>
+                <input id="full_text_max_chars" min="2000" type="number" />
+              </label>
+              <label class="field">
+                <span>Full-Text Min Chars</span>
+                <input id="full_text_min_chars" min="200" type="number" />
+              </label>
+              <label class="field">
+                <span>Full-Text Max Papers</span>
+                <input id="full_text_max_papers" min="0" type="number" />
+              </label>
+              <label class="field">
+                <span>Visuals Directory</span>
+                <input id="visuals_dirname" spellcheck="false" type="text" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="apiPanel">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>API And Network</h2>
+              <span class="path-badge" id="envPathBadge"></span>
+            </div>
+            <div class="form-grid compact">
+              <label class="field wide">
+                <span>User Agent</span>
+                <input id="LITERATURE_DIGEST_USER_AGENT" spellcheck="false" type="text" />
+              </label>
+              <label class="field secret">
+                <span>Elsevier API Key</span>
+                <input id="ELSEVIER_API_KEY" autocomplete="off" spellcheck="false" type="password" />
+                <button class="mini-button" data-reveal="ELSEVIER_API_KEY" type="button">Show</button>
+              </label>
+              <label class="field secret">
+                <span>Elsevier Insttoken</span>
+                <input id="ELSEVIER_INSTTOKEN" autocomplete="off" spellcheck="false" type="password" />
+                <button class="mini-button" data-reveal="ELSEVIER_INSTTOKEN" type="button">Show</button>
+              </label>
+              <label class="field secret">
+                <span>Springer Nature API Key</span>
+                <input id="SPRINGER_NATURE_API_KEY" autocomplete="off" spellcheck="false" type="password" />
+                <button class="mini-button" data-reveal="SPRINGER_NATURE_API_KEY" type="button">Show</button>
+              </label>
+              <label class="field secret">
+                <span>Springer OpenAccess API Key</span>
+                <input id="SPRINGER_OPENACCESS_API_KEY" autocomplete="off" spellcheck="false" type="password" />
+                <button class="mini-button" data-reveal="SPRINGER_OPENACCESS_API_KEY" type="button">Show</button>
+              </label>
+              <label class="toggle-field">
+                <input id="elsevier_no_proxy" type="checkbox" />
+                <span>Elsevier No Proxy</span>
+              </label>
+              <label class="toggle-field">
+                <input id="springer_no_proxy" type="checkbox" />
+                <span>Springer No Proxy</span>
+              </label>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Advanced API Binding</h2>
+            </div>
+            <div class="form-grid compact">
+              <label class="field">
+                <span>User Agent Env</span>
+                <input id="user_agent_env" spellcheck="false" type="text" />
+              </label>
+              <label class="field">
+                <span>Elsevier Key Env</span>
+                <input id="elsevier_api_key_env" spellcheck="false" type="text" />
+              </label>
+              <label class="field">
+                <span>Elsevier Insttoken Env</span>
+                <input id="elsevier_insttoken_env" spellcheck="false" type="text" />
+              </label>
+              <label class="field">
+                <span>Springer Meta Env</span>
+                <input id="springer_api_key_env" spellcheck="false" type="text" />
+              </label>
+              <label class="field">
+                <span>Springer OpenAccess Env</span>
+                <input id="springer_openaccess_api_key_env" spellcheck="false" type="text" />
+              </label>
+              <label class="field">
+                <span>Scopus Search View</span>
+                <select id="scopus_search_view">
+                  <option>STANDARD</option>
+                  <option>COMPLETE</option>
+                </select>
+              </label>
+              <label class="toggle-field">
+                <input id="scopus_enrich_abstracts" type="checkbox" />
+                <span>Scopus Abstract Enrichment</span>
+              </label>
+              <label class="field">
+                <span>Scopus Abstract View</span>
+                <select id="scopus_abstract_view">
+                  <option>META_ABS</option>
+                  <option>FULL</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>ScienceDirect View</span>
+                <select id="elsevier_sciencedirect_view">
+                  <option>COMPLETE</option>
+                  <option>STANDARD</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Article Retrieval View</span>
+                <select id="elsevier_article_retrieval_view">
+                  <option>FULL</option>
+                  <option>META</option>
+                  <option>REF</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Article Retrieval Accept</span>
+                <select id="elsevier_article_retrieval_accept">
+                  <option>text/xml</option>
+                  <option>application/json</option>
+                  <option>application/pdf</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="runPanel">
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Run</h2>
+              <span class="path-badge" id="runStatusBadge">Ready</span>
+            </div>
+            <div class="command-row">
+              <input id="runCommand" readonly type="text" />
+              <button class="button secondary" id="copyRunButton" type="button">Copy</button>
+            </div>
+            <div class="command-row">
+              <input id="offlineCommand" readonly type="text" />
+              <button class="button secondary" id="copyOfflineButton" type="button">Copy</button>
+            </div>
+            <div class="run-actions">
+              <button class="button primary" id="saveAndOfflineButton" type="button">Save And Run Offline Sample</button>
+              <button class="button secondary" id="runDigestButton" type="button">Run Digest</button>
+            </div>
+            <pre class="run-output" id="runOutput"></pre>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>Status</h2>
+            </div>
+            <div class="status-list" id="statusList"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>
